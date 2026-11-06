@@ -206,10 +206,173 @@ class MilestoneTests(unittest.TestCase):
         self.assertIn("whole ladder", m["tip"])
 
 
+def run(d, km, spd=None, aid=None, **extra):
+    return {"d": d, "s": "run", "km": km, "spd": spd, "id": aid, "n": f"Run {aid}", **extra}
+
+
+class PersonalBestTests(unittest.TestCase):
+    def test_running_bests_and_new_badges(self):
+        acts = [run("2026-10-01", 3.0, 2.5, 1), run("2026-10-20", 5.1, 2.4, 2, f1k=330),
+                run("2026-11-05", 2.0, 2.9, 3), run("2026-11-06", 0.5, 4.0, 4),          # too short for pace
+                {"d": "2026-10-02", "s": "walk", "km": 6, "id": 5, "n": "Walk"},
+                {"d": "2026-11-03", "s": "strength", "km": 0, "min": 45, "id": 6, "n": "Gym"}]
+        days = [{"d": "2026-10-05", "st": 12000, "im": 300, "rhr": 52}, {"d": "2026-10-06", "st": 9000, "im": 20, "rhr": 49},
+                {"d": "2026-10-07", "st": None, "im": 0, "rhr": None}]
+        sleep = {"2026-10-05": {"sleepScores": {"overall": {"value": 81}}}, "2026-10-06": {}}
+        r = coach.personal_bests(acts, days, sleep, DAY)
+        b = {x["k"]: x for x in r["bests"]}
+        self.assertEqual((b["run_long"]["text"], b["run_long"]["aid"], b["run_long"]["new"]), ("5.1 km", 2, False))
+        self.assertEqual((b["run_pace"]["text"], b["run_pace"]["aid"], b["run_pace"]["new"]), ("5:45 /km", 3, True))
+        self.assertEqual((b["run_1k"]["text"], b["run_1k"]["sub"]), ("5:30", "fastest split"))
+        self.assertEqual((b["run_5k"]["text"], b["run_5k"]["sub"], b["run_5k"]["aid"]), ("34:43", "whole-run average", 2))
+        self.assertEqual((b["run_week"]["text"], b["run_week"]["d"]), ("5.1 km", "2026-10-19"))
+        self.assertEqual(b["walk_long"]["text"], "6.0 km")
+        self.assertEqual((b["strength_long"]["text"], b["strength_long"]["new"]), ("45 min", True))
+        self.assertEqual(b["steps_day"]["text"], "12,000")
+        self.assertEqual(b["im_week"]["text"], "320 min")
+        self.assertEqual(b["rhr_low"]["text"], "49 bpm")
+        self.assertEqual(b["sleep_best"]["text"], "81")
+        self.assertNotIn("ride_long", b)
+        self.assertEqual([(f["s"], f["d"]) for f in r["firsts"]],
+                         [("run", "2026-10-01"), ("walk", "2026-10-02"), ("strength", "2026-11-03")])
+        self.assertEqual([f["new"] for f in r["firsts"]], [False, False, True])
+
+    def test_long_times_and_nothing_yet(self):
+        acts = [run("2026-10-01", 42.2, 3.0, 1)]
+        b = {x["k"]: x for x in coach.personal_bests(acts, [], {}, DAY)["bests"]}
+        self.assertEqual(b["run_5k"]["text"], "27:47")
+        self.assertEqual(coach._mmss(3 * 3600 + 65), "3:01:05")
+        r = coach.personal_bests([], [{"d": "2026-10-01", "st": 0, "im": 0, "rhr": None}], {}, DAY)
+        self.assertEqual(r, {"bests": [], "firsts": []})
+
+
+def night(day, bed, wake, hours, score=None, stress=None, need=None, optimal=None):
+    """bed/wake as 'HH:MM' local; bed before noon means after midnight."""
+    def ms(d, hhmm):
+        h, m = map(int, hhmm.split(":"))
+        return int((date.fromisoformat(d) - date(1970, 1, 1)).total_seconds() * 1000 + (h * 60 + m) * 60000)
+    v = {"sleepTimeSeconds": hours * 3600, "sleepStartTimestampLocal": ms(day, bed), "sleepEndTimestampLocal": ms(day, wake),
+         "avgSleepStress": stress, "sleepScores": {"overall": {"value": score}} if score else {}}
+    if need:
+        v["sleepNeed"] = {"actual": need}
+    if optimal:
+        v["sleepScores"]["totalDuration"] = {"optimalStart": optimal}
+    return v
+
+
+class SleepInsightTests(unittest.TestCase):
+    def days(self, n, **kw):
+        return [(DAY - timedelta(days=i)).isoformat() for i in range(n)]
+
+    def test_short_irregular_sleep(self):
+        sleep = {}
+        for i, d in enumerate(self.days(8)):
+            early = i % 2 == 0
+            sleep[d] = night(d, "21:30" if early else "01:00", "05:00", 5, score=80 if early else 55, stress=35)
+        sleep[self.days(8)[1]]["sleepNeed"] = {"actual": 450}
+        sleep["2026-09-01"] = night("2026-09-01", "22:00", "06:00", 8)      # too old
+        sleep[self.days(9)[8]] = {"sleepTimeSeconds": 0}                      # not tracked
+        s = coach.sleep_insights(sleep, DAY)
+        self.assertEqual((s["n"], s["need"], s["needSource"], s["avg"]), (8, 7.5, "garmin", 5))
+        self.assertEqual(s["debt"], 17.5)
+        self.assertEqual((coach.hhmm(s["bed"]), s["bedSpread"]), ("23:15", 105))
+        self.assertEqual(coach.hhmm(s["wake"]), "05:00")
+        self.assertEqual((s["stress"], s["score"]), (35, 68))
+        text = " ".join(s["insights"])
+        self.assertIn("2h 30m less than the 7h 30m Garmin says you need", text)
+        self.assertIn("sleep debt of about 17h 30m", text)
+        self.assertIn("bedtime moves around", text)
+        self.assertIn("averaged 80 on nights you went to bed before 23:15, against 55", text)
+        self.assertIn("Overnight stress averaged 35 (under 25 is restful)", text)
+        self.assertEqual(len(s["nights"]), 8)
+
+    def test_good_steady_sleep(self):
+        sleep = {d: night(d, "22:30", "06:30", 8, score=85, stress=15, optimal=8 * 3600) for d in self.days(5)}
+        s = coach.sleep_insights(sleep, DAY)
+        self.assertEqual((s["need"], s["needSource"], s["debt"]), (8, "score", 0))
+        text = " ".join(s["insights"])
+        self.assertIn("right around the 8h 00m recommended", text)
+        self.assertIn("bedtime is steady, usually around 22:30 (give or take 0 min)", text)
+        self.assertIn("resting well at night", text)
+        self.assertNotIn("sleep debt", text)
+
+    def test_long_sleep_few_nights_no_timestamps(self):
+        sleep = {d: {"sleepTimeSeconds": 10 * 3600} for d in self.days(2)}
+        s = coach.sleep_insights(sleep, DAY)
+        self.assertEqual((s["need"], s["needSource"]), (8.0, "default"))
+        self.assertIn("more than the 8h 00m recommended", s["insights"][0])
+        self.assertNotIn("bed", s)
+        self.assertNotIn("stress", s)
+        self.assertNotIn("score", s)
+        self.assertEqual(s["nights"][0]["bed"], None)
+
+    def test_no_nights(self):
+        s = coach.sleep_insights({}, DAY)
+        self.assertEqual(s["n"], 0)
+        self.assertIn("Wear your watch to bed", s["insights"][0])
+
+
+class TrainingPlanTests(unittest.TestCase):
+    def plan(self, acts, cfg=None, today=DAY):
+        return coach.training_plan(acts, coach.milestones(acts), cfg or {}, today)
+
+    def test_first_runs(self):
+        p = self.plan([])
+        self.assertEqual((p["target"], p["goal"], p["perWeek"]), ("First run", 1.0, 3))
+        self.assertEqual(p["week"]["long"], 1.0)
+        self.assertEqual(p["week"]["intervals"], "Run 1 min, walk 2 min, repeat")
+        self.assertEqual([(x["kind"], x["day"], x["done"]) for x in p["sessions"]],
+                         [("Easy run", "Tue", False), ("Easy run", "Thu", False), ("Long run", "Sat", False)])
+        self.assertEqual(len(p["past"]), 4)
+        self.assertEqual(len(p["ahead"]), 4)
+
+    def test_building_to_5k_and_this_weeks_runs(self):
+        mon = coach.monday(DAY)
+        acts = [run(iso(mon - timedelta(days=10)), 2.0, 2.5, 1), run(iso(mon), 1.4, 2.5, 2),
+                run(iso(mon + timedelta(days=2)), 2.3, 2.5, 3)]
+        p = self.plan(acts, {"goal_type": "runs", "goal_value": 4})
+        w = p["week"]
+        self.assertEqual((p["target"], p["perWeek"]), ("5K", 4))
+        self.assertEqual((w["long"], w["easy"], w["doneRuns"], w["doneLong"], w["longOk"]), (2.2, 1.3, 2, 2.3, True))
+        self.assertEqual(w["intervals"], "Run 2 min, walk 1 min, repeat")
+        self.assertEqual([x["done"] for x in p["sessions"]], [True, False, False, True])
+        self.assertEqual([x["day"] for x in p["sessions"]], ["Mon", "Wed", "Fri", "Sun"])
+        self.assertEqual(p["ahead"][0]["long"], 2.5)                 # builds on the 2.3 km already run
+        self.assertFalse(p["ready"])
+
+    def test_runs_per_week_is_kept_sensible(self):
+        self.assertEqual(self.plan([], {"goal_type": "runs", "goal_value": 9})["perWeek"], 5)
+        self.assertEqual(self.plan([], {"goal_type": "runs", "goal_value": 1})["perWeek"], 2)
+        self.assertEqual(self.plan([], {"goal_type": "km", "goal_value": 20})["perWeek"], 3)
+
+    def test_easier_weeks_and_ready(self):
+        mon = coach.monday(DAY)
+        acts = [run(iso(mon - timedelta(days=d)), 5.0, 2.5, d) for d in (3, 10, 17)]
+        acts.append(run(iso(mon), 5.0, 2.5, 99))
+        p = self.plan(acts, today=DAY)
+        self.assertEqual(p["target"], "10K")
+        easier = [w for w in p["ahead"] if w["easier"]]
+        self.assertEqual(len(easier), 1)
+        i = p["ahead"].index(easier[0])
+        if i:
+            self.assertEqual(easier[0]["long"], p["ahead"][i - 1]["long"])   # no growth in an easier week
+        acts = [run(iso(mon - timedelta(days=3)), 10.0, 2.5, 1), run(iso(mon), 9.6, 2.5, 2)]
+        p = self.plan(acts[:1] + [run("2026-01-01", 21.1, 2.5, 3), run("2026-01-02", 42.2, 2.5, 4)], today=DAY)
+        self.assertEqual(p["target"], "Marathon")                      # triathlons next: keep building to the marathon
+        p = coach.training_plan([run(iso(mon - timedelta(days=3)), 5.0, 2.5, 1)],
+                                {"steps": [{"k": "5k", "date": None}], "next": 0}, {}, DAY)
+        self.assertTrue(p["ready"])
+        self.assertEqual(p["week"]["intervals"], None)
+
+    def test_run_walk_steps(self):
+        self.assertEqual(coach.run_walk(3.0), "Run 4 min, walk 1 min, repeat")
+        self.assertIsNone(coach.run_walk(4.0))
+
+
 class BuildCoachTests(unittest.TestCase):
-    def test_all_three_cards(self):
+    def test_all_cards(self):
         c = coach.build_coach(D, {}, {}, {}, [], [], {}, today=DAY)
-        self.assertEqual(set(c), {"ready", "goal", "ladder"})
+        self.assertEqual(set(c), {"ready", "goal", "ladder", "records", "sleep", "plan"})
         self.assertEqual(coach.build_coach(D, {}, {}, {}, [], [], {})["goal"]["type"], "minutes")
 
 

@@ -87,7 +87,8 @@ def make_activity(aid, when, type_key, km=3.0, minutes=30.0, **extra):
         "distance": km * 1000, "duration": minutes * 60, "movingDuration": minutes * 60 - 60,
         "elevationGain": 12.0, "averageHR": 130.0, "maxHR": 160.0, "calories": 250.0,
         "activityTrainingLoad": 45.5, "aerobicTrainingEffect": 2.8, "anaerobicTrainingEffect": 0.4,
-        "steps": 3500, "averageRunningCadenceInStepsPerMinute": 150.0, "averageSpeed": 1.8,
+        "steps": 3500, "averageRunningCadenceInStepsPerMinute": 150.0 + aid % 9, "averageSpeed": 1.8 + aid % 5 / 10,
+        "avgStrideLength": 80.0 + aid % 7,
         "avgRespirationRate": 30.0,
         **{f"hrTimeInZone_{i}": 60.0 * i for i in range(1, 6)},
     }
@@ -132,10 +133,18 @@ def make_daily(day, steps=8000, empty=False):
     }
 
 
+def local_ms(when):
+    """Garmin's "local" timestamps: local clock time written as if it were UTC."""
+    return int(when.replace(tzinfo=timezone.utc).timestamp() * 1000)
+
+
 def make_sleep(day, hours=7.0):
+    wake = datetime.combine(day, datetime.min.time()).replace(hour=6, minute=day.day % 3 * 20)
     return {"calendarDate": ds(day), "sleepTimeSeconds": int(hours * 3600),
             "deepSleepSeconds": 3600, "lightSleepSeconds": 12000, "remSleepSeconds": 5400,
-            "awakeSleepSeconds": 900, "sleepScores": {"overall": {"value": 78, "qualifierKey": "GOOD"}}}
+            "awakeSleepSeconds": 900, "sleepScores": {"overall": {"value": 70 + day.day % 20, "qualifierKey": "GOOD"}},
+            "sleepStartTimestampLocal": local_ms(wake - timedelta(hours=hours + 0.25)),
+            "sleepEndTimestampLocal": local_ms(wake), "avgSleepStress": 18 + day.day % 5}
 
 
 def make_hrv(day, value=45, status="BALANCED"):

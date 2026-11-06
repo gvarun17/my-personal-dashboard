@@ -182,9 +182,10 @@ for (const sc of manifest) {
   test(`dashboard renders and responds: ${sc.name}`, async () => {
     const page = loadDashboard(sc.html, { width: sc.width, height: sc.height, protocol: sc.protocol, fetchStatus: sc.status, storage: sc.storage });
     try {
-      const RUN = ['ladder', 'ladTip', 'heroNote', 'roadFacts', 'ring', 'tiles', 'wkChart', 'imChart', 'heat', 'rhrChart',
+      const RUN = ['ladder', 'ladTip', 'heroNote', 'roadFacts', 'ring', 'plan', 'formNote', 'fPace', 'fEff', 'fCad', 'fStride',
+        'firsts', 'tiles', 'wkChart', 'imChart', 'heat', 'rhrChart',
         'hrvChart', 'sleepChart', 'loadChart', 'zbar', 'bigTable', ...(sc.empty ? [] : ['recs'])];
-      const HEALTH = ['hTiles', 'xChart', 'xTable', 'hSteps', 'hRhr', 'hSleep', 'hStress', 'hBB', 'hCal'];
+      const HEALTH = ['sleepIns', 'hTiles', 'xChart', 'xTable', 'hSteps', 'hRhr', 'hSleep', 'hStress', 'hBB', 'hCal'];
       const startHealth = !!(sc.storage && sc.storage.view === 'health');
       // Every section of the view on screen rendered something
       for (const id of ['ready', 'today', 'todayActs', 'foot', 'meta', ...(startHealth ? HEALTH : RUN)]) {
@@ -208,7 +209,7 @@ for (const sc of manifest) {
       }
       assert.ok(!/NaN|undefined/.test(text(page, 'tiles')), 'tiles show NaN/undefined');
       assert.ok(!/NaN|undefined/.test(text(page, 'today')), 'today shows NaN/undefined');
-      for (const id of ['ready', 'ring', 'heroNote', 'ladder', 'ladTip', 'roadFacts']) {
+      for (const id of ['ready', 'ring', 'heroNote', 'ladder', 'ladTip', 'roadFacts', 'plan', 'recs', 'firsts', 'formNote']) {
         assert.ok(!/NaN|undefined|null/.test(text(page, id)), `${id} shows NaN/undefined/null`);
       }
 

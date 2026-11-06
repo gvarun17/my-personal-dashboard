@@ -76,9 +76,11 @@ class DashboardJavaScriptTests(TempDataCase):
         settings.save(name="Test Runner", tz="Europe/London", key="not-a-real-key")
         scenarios.append({"name": "full data, desktop, file", "html": self.build_html("full"),
                           "width": 1280, "protocol": "file:",
-                          "expect": [["today", "Steps"], ["tiles", "Distance this week"], ["recs", "Longest distance"],
+                          "expect": [["today", "Steps"], ["tiles", "Distance this week"], 
                                      ["ready", "Today's call"], ["ready", "Resting HR"], ["ladder", "Reached"],
-                                     ["heroNote", "Goal from Garmin Connect"]],
+                                     ["heroNote", "Goal from Garmin Connect"], ["recs", "Longest run"],
+                                     ["firsts", "First run"], ["plan", "Road to"], ["plan", "Coming up"],
+                                     ["formNote", "Your first 3 runs vs your last 3"]],
                           "expectText": [["who", "Test Runner's training log"]]})
 
         # 2. Same data on a phone, served by server.py: a refresh is running when the page opens
@@ -90,7 +92,8 @@ class DashboardJavaScriptTests(TempDataCase):
         scenarios.append({"name": "empty account", "html": self.build_html("empty"), "width": 1100,
                           "protocol": "https:", "status": "B", "empty": True, "expectButton": "Refresh failed",
                           "storage": "blocked",                       # private browsing: nothing remembered
-                          "expect": [["todayActs", "No activities yet today"]]})
+                          "expect": [["todayActs", "No activities yet today"], ["recs", "Your bests show up"],
+                                     ["firsts", "No activities yet"]]})
 
         # 4. Rest day: no activity today, HRV baseline set, weekly goal not reached; server unreachable
         write_dataset(self, activities=[
@@ -133,7 +136,8 @@ class DashboardJavaScriptTests(TempDataCase):
         scenarios.append({"name": "long ride today", "html": self.build_html("ride"), "width": 1440,
                           "protocol": "file:", "expect": [["act0c", "Speed"], ["act0c", "Elevation"], ["act1c", "no detailed graphs"],
                                                          ["heroNote", "Hit it this week to start a streak"],
-                                                         ["ring", "of 400 km"], ["ready", "4h 00m"]]})
+                                                         ["ring", "of 400 km"], ["ready", "4h 00m"],
+                                                         ["todayActs", "★ Longest ride"]]})
 
         # 6. Sparse, odd data: missing fields everywhere, single readings, tiny screen
         self.reset_data()

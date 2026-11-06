@@ -87,6 +87,11 @@ def build():
             "ld": r(a.get("activityTrainingLoad"), 0),
             "te": r(a.get("aerobicTrainingEffect"), 1),
             "z": [r((a.get(f"hrTimeInZone_{i}") or 0) / 60, 1) for i in range(1, 6)],
+            "id": a.get("activityId"),
+            "spd": r(a.get("averageSpeed"), 3),
+            "cad": r(a.get("averageRunningCadenceInStepsPerMinute"), 0),
+            "stride": r((a.get("avgStrideLength") or 0) / 100, 2) or None,  # cm -> m
+            "f1k": r(a.get("fastestSplit_1000"), 0), "f5k": r(a.get("fastestSplit_5000"), 0),
         })
     acts.sort(key=lambda x: x["ts"])
 
@@ -199,6 +204,7 @@ def build_today(t, daily_raw, sleep_raw, hrv_raw, acts_raw):
         sm = det.get("summary") or {}
         series = {k: vals for k, vals in (det.get("series") or {}).items() if k != "cad1"}
         out["acts"].append({
+            "id": a.get("activityId"),
             "name": a.get("activityName") or "", "s": sport(g(a, "activityType", "typeKey")),
             "ty": (g(a, "activityType", "typeKey") or "activity").replace("_", " "),
             "start": (a.get("startTimeLocal") or "")[11:16],
@@ -283,6 +289,26 @@ h2{font-size:16px;margin:0;font-weight:620}
 .ladder li.next span{color:var(--ink2)}
 .ladtip{background:var(--raise);border-radius:12px;padding:10px 12px;margin:12px 0 0;font-size:13px;color:var(--ink2)}
 .ladtip b{color:var(--ink)}
+/* training plan */
+.plan{display:grid;grid-template-columns:minmax(260px,1fr) 1.3fr;gap:18px 30px}
+.plan h3{margin:2px 0 4px;font-size:16px;font-weight:620}
+.sess{list-style:none;margin:12px 0 0;padding:0}
+.sess li{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;background:var(--raise);margin-top:6px}
+.sess li i{flex:none;width:20px;height:20px;border-radius:50%;border:2px solid var(--accent-track);display:flex;align-items:center;justify-content:center;font-size:11px;font-style:normal;font-weight:800;color:#fff}
+.sess li.done i{background:var(--good);border-color:var(--good)}
+.sess li b{font-weight:600}.sess li span{color:var(--muted);margin-left:auto;font-size:12.5px}
+.note{font-size:13px;color:var(--ink2);margin:10px 0 0}
+.plan table td:last-child{text-align:center}
+/* bests */
+.rec .new{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;color:#0d0d0d;background:#e0a21b;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:2px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.chip{display:inline-flex;align-items:center;gap:7px;background:var(--raise);border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--ink2)}
+.chip b{color:var(--ink);font-weight:600}
+.actrow .best{font-size:11px;font-weight:700;color:#0d0d0d;background:#e0a21b;border-radius:999px;padding:2px 8px;white-space:nowrap}
+/* sleep insights */
+.sgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:4px}
+.tips{margin:14px 0 0;padding-left:20px;color:var(--ink2);font-size:13.5px}
+.tips li{margin:5px 0}
 /* readiness */
 .ready{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:16px 26px;align-items:center;margin-bottom:14px}
 .call{display:flex;gap:14px;align-items:flex-start}
@@ -398,8 +424,8 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
 #tip .r span:last-child{font-variant-numeric:tabular-nums;font-weight:600}
 #tip .k{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
 @media (max-width:1000px){.tiles{grid-template-columns:repeat(3,1fr)}.recs{grid-template-columns:repeat(2,1fr)}}
-@media (max-width:920px){.hero{grid-template-columns:1fr}.ready{grid-template-columns:1fr}}
-@media (max-width:760px){.grid2{grid-template-columns:1fr}.sigs{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:920px){.hero{grid-template-columns:1fr}.ready{grid-template-columns:1fr}.plan{grid-template-columns:1fr}.sgrid{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}.sigs{grid-template-columns:repeat(2,1fr)}.sgrid{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:520px){
   header{align-items:flex-start}.hdr-r{width:100%;justify-content:space-between}
   .wrap{padding:20px 12px 40px}
@@ -453,6 +479,9 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
     </div>
   </section>
 
+  <div class="sechead"><h2>Your training plan</h2></div>
+  <section class="card plan" id="plan"></section>
+
   <section class="tiles" id="tiles"></section>
 
   <div class="sechead"><h2>This week vs recent weeks</h2>
@@ -495,6 +524,15 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
       <div class="chartbox" id="loadChart"></div><div class="legend" id="loadLegend"></div></div>
   </div>
 
+  <div class="sechead"><h2>Running form and fitness</h2></div>
+  <p class="q" id="formNote" style="margin:-4px 2px 12px"></p>
+  <div class="grid2">
+    <div class="card"><h2>Pace</h2><p class="q">Average pace per run, in min/km. Lower is faster.</p><div class="chartbox" id="fPace"></div><div class="legend" id="fLegend"></div></div>
+    <div class="card"><h2>Metres per heartbeat</h2><p class="q">How far each heartbeat carries you. Rising means your fitness is improving.</p><div class="chartbox" id="fEff"></div></div>
+    <div class="card"><h2>Cadence</h2><p class="q">Steps per minute. A little higher (often 160–180) usually means lighter, safer strides.</p><div class="chartbox" id="fCad"></div></div>
+    <div class="card"><h2>Stride length</h2><p class="q">Metres per step. It grows naturally as you get fitter; don't force it.</p><div class="chartbox" id="fStride"></div></div>
+  </div>
+
   <section class="card sec">
     <h2>How hard were the last 4 weeks?</h2>
     <p class="q" id="zoneQ">Time in each heart rate zone, across all activities.</p>
@@ -502,8 +540,9 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
     <div class="legend" id="zLegend"></div>
   </section>
 
-  <div class="sechead"><h2>Records and biggest days</h2></div>
+  <div class="sechead"><h2>Personal bests and firsts</h2></div>
   <section class="recs" id="recs"></section>
+  <section class="card sec"><h2>Firsts</h2><p class="q">The first time you did each kind of workout.</p><div class="chips" id="firsts"></div></section>
   <section class="card sec">
     <h2>Biggest days</h2>
     <p class="q">Your five longest sessions.</p>
@@ -514,6 +553,7 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
   <div id="healthView" hidden>
   <div class="sechead" style="margin-top:26px"><h2>Health and strength</h2></div>
   <section class="tiles" id="hTiles" style="margin-top:0"></section>
+  <section class="card sec" id="sleepIns"></section>
   <div class="grid2 sec">
     <div class="card"><h2>Workouts other than running</h2><p class="q">Where does my time go outside running? Hours per week.</p>
       <div class="chartbox" id="xChart"></div><div class="legend" id="xLegend"></div></div>
@@ -788,6 +828,101 @@ function renderHero(){
     + `<span>Sessions, last 4 weeks <b>${last28.length}</b></span>`;
 }
 
+// ---------- training plan ----------
+function renderPlan(){
+  const L = D.coach.plan, W = L.week, R = D.coach.ready;
+  const runsTxt = n => `${n} run${n===1?'':'s'}`;
+  const note = L.ready ? `<p class="note"><b>You're ready for your ${esc(L.target)}.</b> Pick a day this week, start easy and enjoy it.</p>`
+    : R.level === 'rest' ? `<p class="note">Today's call says rest. If a run is planned today, move it to tomorrow.</p>` : '';
+  document.getElementById('plan').innerHTML = `<div>
+      <div class="eyebrow">This week${W.easier ? ' · easier week' : ''}</div>
+      <h3>Road to ${esc(L.target)} · ${runsTxt(L.perWeek)} a week</h3>
+      <p class="note" style="margin-top:2px">${W.intervals ? esc(W.intervals) + ', for the distance below.' : 'Easy runs at a pace where you can talk in full sentences.'}${W.easier ? ' An easier week lets your body absorb the training.' : ''}</p>
+      <ul class="sess">${L.sessions.map(x => `<li class="${x.done?'done':''}"><i aria-label="${x.done?'done':'to do'}">${x.done?'✓':''}</i><b>${x.day}</b> ${x.kind}<span>${n1(x.km)} km</span></li>`).join('')}</ul>
+      <p class="note">Done so far: ${runsTxt(W.doneRuns)}, ${n1(W.doneKm)} km${W.doneRuns ? `, longest ${n1(W.doneLong)} km` : ''}.</p>${note}
+    </div>
+    <div>
+      <div class="eyebrow">Planned vs done, last 4 weeks</div>
+      <div class="tablewrap" style="margin-top:6px"><table><thead><tr><th>Week</th><th>Planned</th><th>Done</th><th>✓</th></tr></thead><tbody>${L.past.map(x => `<tr><td>${fd(P(x.w))}</td><td>${runsTxt(x.runs)} · long ${n1(x.long)} km</td><td>${runsTxt(x.doneRuns)} · longest ${n1(x.doneLong)} km</td><td>${x.ok?'✓':'–'}</td></tr>`).join('')}</tbody></table></div>
+      <div class="eyebrow" style="margin-top:16px">Coming up</div>
+      <div class="tablewrap" style="margin-top:6px"><table><thead><tr><th>Week of</th><th>Long run</th><th>Easy runs</th><th></th></tr></thead><tbody>${L.ahead.map(x => `<tr><td>${fd(P(x.w))}</td><td>${n1(x.long)} km</td><td>${L.perWeek-1} × ${n1(x.easy)} km</td><td>${x.easier?'easier':''}</td></tr>`).join('')}</tbody></table></div>
+    </div>`;
+}
+
+// ---------- running form and fitness ----------
+function renderForm(){
+  const runs = D.acts.filter(a => a.s === 'run' && a.spd > 0);
+  const x0 = runs.length ? Math.min(runs[0].t - 7*DAY, TODAY - 30*DAY) : TODAY - 90*DAY, x1 = TODAY;
+  const M = [
+    {id:'fPace', f:a => 1000/a.spd/60, fmt:v => paceStr(v), u:' /km', name:'Pace'},
+    {id:'fEff', f:a => a.hr ? a.spd*60/a.hr : null, fmt:v => (Math.round(v*100)/100).toFixed(2), u:' m/beat', name:'Metres per heartbeat'},
+    {id:'fCad', f:a => a.cad, fmt:v => Math.round(v), u:' spm', name:'Cadence'},
+    {id:'fStride', f:a => a.stride, fmt:v => (Math.round(v*100)/100).toFixed(2), u:' m', name:'Stride length'},
+  ];
+  const change = [];
+  M.forEach(m => {
+    const pts = runs.map(a => [a.t, m.f(a), a]).filter(q => q[1] != null);
+    const roll = pts.map((q,i) => [q[0], avg(pts.slice(Math.max(0,i-4), i+1).map(x=>x[1]))]);
+    lineChart(document.getElementById(m.id), {x0, x1, h:170, gap:60, empty:'No runs with this data yet.', fmt:m.fmt,
+      series:[{c:'#d95926', pts:pts.map(q=>[q[0],q[1]]), dots:true, line:false}, {c:'#3987e5', w:2.5, pts:roll}],
+      tip: t => { const q = pts.find(x=>x[0]===t), r = roll.find(x=>x[0]===t);
+        return `<div class="t">${fdy(t)}${q ? ' · ' + esc(q[2].n || q[2].ty) : ''}</div>${q ? row(m.name, m.fmt(q[1]) + m.u, '#d95926') : ''}${r ? row('Last 5 runs', m.fmt(r[1]) + m.u, '#3987e5') : ''}`; }});
+    if (pts.length >= 6){
+      const a = avg(pts.slice(0,3).map(q=>q[1])), b = avg(pts.slice(-3).map(q=>q[1]));
+      change.push(`${m.name.toLowerCase()} ${m.fmt(a)} → ${m.fmt(b)}${m.u}`);
+    }
+  });
+  document.getElementById('fLegend').innerHTML = `<span><i style="background:#d95926;border-radius:50%"></i>Each run</span><span><i class="ln" style="background:#3987e5"></i>Average of the last 5 runs</span>`;
+  document.getElementById('formNote').innerHTML = (runs.length < 15
+    ? `These trends become meaningful after about 15–20 runs. You have ${runs.length} so far. Treadmill runs are included; their pace depends on how your watch is calibrated.`
+    : `From ${runs.length} runs.`) + (change.length ? ` Your first 3 runs vs your last 3: ${change.join(', ')}.` : '');
+}
+
+// ---------- sleep insights ----------
+const clock = m => hhmm(m + 18*60);       // minutes after 18:00 -> 23:15
+function renderSleepIns(){
+  const S = D.coach.sleep, el = document.getElementById('sleepIns');
+  const need = S.needSource === 'garmin' ? 'Garmin says you need' : 'recommended';
+  el.innerHTML = `<h2>Sleep, last 2 weeks</h2><p class="q">${S.n} night${S.n===1?'':'s'} tracked. Your target: ${hm(S.need*60)} (${need}).</p>`
+    + (S.n ? `<div class="sgrid">
+      ${tm('Average asleep', S.avg != null ? hm(S.avg*60) : '–', '', `target ${hm(S.need*60)}`, meter(S.avg || 0, S.need))}
+      ${tm('Sleep debt, 7 days', S.debt ? hm(S.debt*60) : 'none', '', S.debt ? 'below your target' : 'on target')}
+      ${tm('Usual bedtime', S.bed != null ? clock(S.bed) : '–', '', S.bedSpread != null ? `± ${S.bedSpread} min` : '')}
+      ${tm('Usual wake-up', S.wake != null ? clock(S.wake) : '–', '', S.wakeSpread != null ? `± ${S.wakeSpread} min` : '')}
+      ${tm('Overnight stress', S.stress ?? '–', '', 'under 25 is restful')}
+      ${tm('Sleep score', S.score ?? '–', '', 'average')}
+    </div><h3 style="font-size:13.5px;margin:16px 0 6px;font-weight:600">When you slept</h3><div class="chartbox" id="sleepWin"></div>` : '')
+    + `<ul class="tips">${S.insights.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`;
+  if (S.n) sleepWindow(document.getElementById('sleepWin'), S);
+}
+// One bar per night, from falling asleep to waking up
+function sleepWindow(el, S){
+  const nights = S.nights.filter(n => n.bed != null && n.wake != null);
+  if (!nights.length){ el.innerHTML = '<div class="empty">No bedtimes recorded.</div>'; return; }
+  const W = Math.max(el.clientWidth, 240), H = 190, m = {l:44, r:10, t:10, b:24}, n = 14;
+  const first = TODAY - (n-1)*DAY, byDay = Object.fromEntries(nights.map(x => [P(x.d), x]));
+  const lo = Math.floor((Math.min(...nights.map(x=>x.bed)) - 30)/60)*60, hi = Math.ceil((Math.max(...nights.map(x=>x.wake)) + 30)/60)*60;
+  const slot = (W-m.l-m.r)/n, bw = Math.min(18, slot*0.6), Y = v => m.t + (v-lo)/(hi-lo)*(H-m.t-m.b);
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+  const step = (hi-lo) > 720 ? 180 : 120;
+  for (let v = lo; v <= hi; v += step) s += `<line class="grid" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="tick" x="${m.l-6}" y="${Y(v)+4}" text-anchor="end">${clock(v)}</text>`;
+  if (S.bed != null) s += `<line x1="${m.l}" x2="${W-m.r}" y1="${Y(S.bed)}" y2="${Y(S.bed)}" stroke="#c3c2b7" stroke-dasharray="4 4"/>`;
+  for (let i = 0; i < n; i++){
+    const t = first + i*DAY, x = byDay[t], cx = m.l + i*slot + (slot-bw)/2;
+    if (x) s += `<rect x="${cx}" y="${Y(x.bed)}" width="${bw}" height="${Math.max(2, Y(x.wake)-Y(x.bed))}" rx="4" fill="#3987e5"/>`;
+    if (i % 2 === (n-1) % 2) s += `<text class="tick" x="${m.l+(i+0.5)*slot}" y="${H-6}" text-anchor="middle">${fd(t,{day:'numeric'})}</text>`;
+  }
+  s += `<rect class="hb" y="${m.t}" height="${H-m.t-m.b}" width="${slot}" fill="#ffffff" opacity="0" rx="4"/></svg>`;
+  el.innerHTML = s;
+  const svg = el.querySelector('svg'), hb = svg.querySelector('.hb');
+  hover(svg, ev => {
+    const i = Math.floor((svgX(svg,ev,W)-m.l)/slot), t = first + i*DAY, x = byDay[t];
+    if (i < 0 || i >= n){ hideTip(); hb.setAttribute('opacity',0); return; }
+    hb.setAttribute('x', m.l+i*slot); hb.setAttribute('opacity', .07);
+    showTip(`<div class="t">Night to ${fdy(t)}</div>` + (x ? row('Fell asleep', clock(x.bed)) + row('Woke up', clock(x.wake)) + row('Asleep', hm(x.h*60)) + (x.sc ? row('Sleep score', x.sc) : '') : 'Not tracked'), ev);
+  }, () => hb.setAttribute('opacity',0));
+}
+
 // ---------- tiles ----------
 function delta(v, ref, upGood, fmt, word){
   if (v == null || ref == null) return '';
@@ -979,6 +1114,7 @@ function renderTrends(){
 let hRangeM = 3;
 const XS = SPORTS.filter(s => s.k !== 'run');
 function renderHealth(){
+  renderSleepIns();
   tilesInto('hTiles', [
     TILE.steps(), TILE.rhr(), TILE.sleep(),
     TILE.daily('str', 'Stress, 7-day avg', '', false, v=>'stress '+n0(v)),
@@ -1038,20 +1174,12 @@ function renderZones(){
 
 // ---------- records ----------
 function renderRecords(){
-  const maxBy = (arr, f) => arr.reduce((b,x) => (f(x)??-Infinity) > (b?f(b)??-Infinity:-Infinity) ? x : b, null);
-  const minBy = (arr, f) => arr.reduce((b,x) => (f(x)??Infinity) < (b?f(b)??Infinity:Infinity) ? x : b, null);
-  const R = [];
-  const A = (lab, a, v) => a && R.push({lab, val:v(a), sub:`${fd(a.t,{day:'numeric',month:'short',year:'numeric'})} · ${esc(a.n||a.ty)}`});
-  A('Longest distance', maxBy(D.acts,a=>a.km), a=>n1(a.km)+' km');
-  A('Longest session', maxBy(D.acts,a=>a.min), a=>hm(a.min));
-  A('Most climbing', maxBy(D.acts.filter(a=>a.el>0),a=>a.el), a=>n0(a.el)+' m');
-  A('Hardest session', maxBy(D.acts.filter(a=>a.ld),a=>a.ld), a=>'load '+n0(a.ld));
-  const sd = maxBy(D.days,d=>d.st); sd && R.push({lab:'Most steps in a day', val:n0(sd.st), sub:fd(sd.t,{weekday:'short',day:'numeric',month:'short',year:'numeric'})});
-  const allW = []; if (D.acts.length) for (let w = MON(D.acts[0].t); w <= W0; w += 7*DAY) allW.push([w, sum(D.acts.filter(a=>a.t>=w&&a.t<w+7*DAY).map(a=>a.km))]);
-  const bw = maxBy(allW, x=>x[1]); bw && R.push({lab:'Biggest week', val:n1(bw[1])+' km', sub:'Week of '+fd(bw[0],{day:'numeric',month:'short',year:'numeric'})});
-  const lr = minBy(D.days.filter(d=>d.rhr), d=>d.rhr); lr && R.push({lab:'Lowest resting HR', val:lr.rhr+' bpm', sub:fd(lr.t,{day:'numeric',month:'short',year:'numeric'})});
-  const bs = maxBy(D.sleep.filter(s=>s.sc), s=>s.sc); bs && R.push({lab:'Best sleep score', val:bs.sc, sub:`${hm(bs.h*60)} · ${fd(bs.t,{day:'numeric',month:'short',year:'numeric'})}`});
-  document.getElementById('recs').innerHTML = R.map(r=>`<div class="card rec"><div class="lab">${r.lab}</div><div class="val">${r.val}</div><div class="sub">${r.sub}</div></div>`).join('');
+  const R = D.coach.records, dl = d => fd(P(d),{day:'numeric',month:'short',year:'numeric'});
+  document.getElementById('recs').innerHTML = R.bests.length ? R.bests.map(b => `<div class="card rec"><div class="lab">${esc(b.label)}${b.new?'<span class="new">NEW</span>':''}</div><div class="val">${esc(b.text)}</div>`
+    + `<div class="sub">${b.sub && b.sub.startsWith('week of') ? 'Week of ' + dl(b.d) : dl(b.d)}${b.name ? ' · ' + esc(b.name) : ''}${b.sub && !b.sub.startsWith('week of') ? ' · ' + esc(b.sub) : ''}</div></div>`).join('')
+    : '<div class="card rec"><div class="empty">Your bests show up here after your first activities.</div></div>';
+  document.getElementById('firsts').innerHTML = R.firsts.length ? R.firsts.map(f => `<span class="chip"><span class="sw" style="background:${SP[f.s].c};margin:0"></span><b>First ${SP[f.s].name.toLowerCase()}</b>${dl(f.d)}${f.new?' · new':''}</span>`).join('')
+    : '<div class="empty">No activities yet.</div>';
   const big = [...D.acts].sort((a,b)=>b.km-a.km || b.min-a.min).slice(0,5);
   document.getElementById('bigTable').innerHTML = big.length ? `<table><thead><tr><th>Date</th><th>Activity</th><th class="n">Distance</th><th class="n">Time</th><th class="n">Pace</th><th class="n">Avg HR</th><th class="n">Load</th></tr></thead><tbody>`
     + big.map(a => { const pace = a.km>0 ? a.min/a.km : null;
@@ -1127,7 +1255,9 @@ function renderActs(T){
   el.innerHTML = `<section class="card actlist"><h2>${now ? "Today's activities" : 'Activities'}</h2><p class="q" style="margin-bottom:4px">Tap one to see its stats and graphs.</p>`
     + T.acts.map((a,i) => {
       const open = openActs.has(i);
-      return `<button class="actrow" data-i="${i}" aria-expanded="${open}"><span class="sw" style="background:${SP[a.s].c}"></span><span class="an">${esc(a.name || a.ty)}</span><span class="am">${a.start} · ${a.km ? n1(a.km)+' km · ' : ''}${hm(a.min)}</span><span class="chev" aria-hidden="true">${open ? '▴' : '▾'}</span></button>`
+      const won = D.coach.records.bests.filter(b => b.aid != null && b.aid === a.id);
+      const badge = won.length ? `<span class="best" title="${esc(won.map(b=>b.label).join(', '))}">★ ${won.length === 1 ? esc(won[0].label) : won.length + ' personal bests'}</span>` : '';
+      return `<button class="actrow" data-i="${i}" aria-expanded="${open}"><span class="sw" style="background:${SP[a.s].c}"></span><span class="an">${esc(a.name || a.ty)}</span>${badge}<span class="am">${a.start} · ${a.km ? n1(a.km)+' km · ' : ''}${hm(a.min)}</span><span class="chev" aria-hidden="true">${open ? '▴' : '▾'}</span></button>`
         + (open ? `<div class="act" id="act${i}"></div>` : '');
     }).join('') + '</section>';
   T.acts.forEach((a,i) => { if (openActs.has(i)) renderActivity(document.getElementById('act'+i), a); });
@@ -1264,7 +1394,7 @@ function renderView(){
   document.getElementById('runView').hidden = view !== 'run';
   document.getElementById('healthView').hidden = view === 'run';
   document.getElementById('view').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === view));
-  if (view === 'run'){ renderHero(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderZones(); renderRecords(); }
+  if (view === 'run'){ renderHero(); renderPlan(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderForm(); renderZones(); renderRecords(); }
   else renderHealth();
 }
 function renderAll(){

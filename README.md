@@ -19,7 +19,9 @@ any device: laptop, phone or tablet.
   cadence, power and breathing rate.
 - **Two views**, switched at the top (your browser remembers the choice):
   - **Running**: everything below.
-  - **Health & strength**: steps, resting heart rate, sleep, stress, Body
+  - **Health & strength**: sleep insights for the last 2 weeks (sleep vs your
+    need, sleep debt, how steady your bedtime and wake-up are, overnight stress,
+    a chart of when you slept and plain-English tips), plus steps, resting heart rate, sleep, stress, Body
     Battery and active calories (7-day tiles and daily charts), plus your
     workouts other than running: hours per week by type and your latest
     sessions.
@@ -29,6 +31,19 @@ any device: laptop, phone or tablet.
 - **Milestones, from first run to Ironman**: first run, 1 km, 5K, 10K, half
   marathon, marathon, half Ironman and Ironman, with the date you reached each
   one and an estimate for the next (adding about 10% a week to your longest run).
+- **Training plan**: a week of runs toward your next milestone (easy runs plus a
+  long run that grows about 10% a week, with an easier week every 4th, and
+  run-walk intervals while runs are short), with ✓ for runs done, the last 4
+  weeks of planned vs done and the next 4 weeks. It plans 3 runs a week, or your
+  weekly runs goal.
+- **Running form and fitness**: pace, cadence, stride length and metres per
+  heartbeat (a fitness measure: higher is fitter) for every run, with a 5-run
+  average.
+- **Personal bests and firsts**: longest and fastest runs (fastest 1 km and 5K
+  use Garmin's own fastest splits when it has them), biggest week, longest
+  walk, ride and strength session, most steps, lowest resting heart rate, best
+  sleep score, and the first time you did each kind of workout. New bests get a
+  NEW badge, and the activity that set one gets a ★ in the Today list.
 - **Your training**: this week vs recent weeks, trends (resting HR, HRV, sleep, training load),
   records and biggest days.
 - Pulls new data **every hour** by itself, plus a **Refresh** button.
@@ -264,7 +279,7 @@ my-personal-dashboard/
 |---|---|
 | `src/server.py` | The web app. Serves the dashboard and the start page, runs `pull.py` + `build.py` on a timer and when you press Refresh, and asks for a login if a password is set. Rejects form posts from other websites. Routes: `/`, `/setup`, `POST /setup`, `POST /refresh`, `/status`, `/healthz`. |
 | `src/garmin_api.py` | API client. Finds the key (start page, then environment, then `.env.local`), swaps it for a 24-hour token (cached and renewed after 20 hours) and retries on 429/502/503. |
-| `src/coach.py` | Works out the top cards from your data: today's call (training, easy or rest day), the weekly goal and streak, and the milestone ladder. |
+| `src/coach.py` | Works out the coaching parts from your data: today's call (training, easy or rest day), the weekly goal and streak, the milestone ladder, the training plan, personal bests and firsts, and sleep insights. |
 | `src/settings.py` | Saves the start page's name, time zone, weekly goal and key in `data/settings.json`, readable only by your user account. |
 | `src/pull.py` | Downloads activities, daily summaries, sleep, HRV, weight, fitness age, heart rate zones, and heart rate, Body Battery and activity detail through each of the last 7 days. Only fetches what is new (each past day once). |
 | `src/build.py` | Turns the data into one self-contained `dashboard.html` (data, styles and SVG charts inline; nothing loaded from the internet). |
