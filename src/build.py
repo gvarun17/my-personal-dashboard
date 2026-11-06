@@ -327,6 +327,7 @@ h2{font-size:16px;margin:0;font-weight:620}
 .sig .sub{font-size:11.5px;color:var(--muted);line-height:1.35;margin-top:2px}
 /* tiles */
 .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:14px}
+.tiles.three{grid-template-columns:repeat(3,1fr)}
 .tile{padding:14px 14px 10px}
 .tile .lab{font-size:12px;color:var(--ink2);font-weight:550}
 .tile .val{font-size:28px;font-weight:650;margin-top:4px;letter-spacing:-.01em;white-space:nowrap}
@@ -430,7 +431,8 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
   header{align-items:flex-start}.hdr-r{width:100%;justify-content:space-between}
   .wrap{padding:20px 12px 40px}
   h1{font-size:23px}
-  .tiles{grid-template-columns:repeat(2,1fr);gap:10px}
+  .tiles,.tiles.three{grid-template-columns:repeat(2,1fr);gap:10px}
+  .tiles.three .tile:last-child{grid-column:1/-1}
   .tile .val{font-size:23px}
   .card{padding:14px;border-radius:14px}
   .ring{width:136px;height:136px}.hero-num{font-size:48px}
@@ -550,7 +552,7 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
   </section>
   </div>
 
-  <div id="healthView" hidden>
+  <div id="healthView">
   <div class="sechead" style="margin-top:26px"><h2>Health and strength</h2></div>
   <section class="tiles" id="hTiles" style="margin-top:0"></section>
   <section class="card sec" id="sleepIns"></section>
@@ -567,8 +569,8 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
   </div>
   <div class="grid2">
     <div class="card"><h2>Steps</h2><p class="q">How much am I moving each day?</p><div class="chartbox" id="hSteps"></div><div class="legend" id="hStepsLegend"></div></div>
-    <div class="card"><h2>Resting heart rate</h2><p class="q">Lower over time usually means a fitter heart.</p><div class="chartbox" id="hRhr"></div><div class="legend" id="hRhrLegend"></div></div>
-    <div class="card"><h2>Sleep</h2><p class="q">Am I sleeping enough to recover?</p><div class="chartbox" id="hSleep"></div><div class="legend" id="hSleepLegend"></div></div>
+    <div class="card" id="hRhrCard"><h2>Resting heart rate</h2><p class="q">Lower over time usually means a fitter heart.</p><div class="chartbox" id="hRhr"></div><div class="legend" id="hRhrLegend"></div></div>
+    <div class="card" id="hSleepCard"><h2>Sleep</h2><p class="q">Am I sleeping enough to recover?</p><div class="chartbox" id="hSleep"></div><div class="legend" id="hSleepLegend"></div></div>
     <div class="card"><h2>Stress</h2><p class="q">Garmin's all-day stress score: under 25 is rest, over 75 is high.</p><div class="chartbox" id="hStress"></div><div class="legend" id="hStressLegend"></div></div>
     <div class="card"><h2>Body Battery</h2><p class="q">How well do I recharge? Each day's highest and lowest.</p><div class="chartbox" id="hBB"></div><div class="legend" id="hBBLegend"></div></div>
     <div class="card"><h2>Active calories</h2><p class="q">Calories burned through movement, on top of your resting burn.</p><div class="chartbox" id="hCal"></div></div>
@@ -1115,8 +1117,10 @@ let hRangeM = 3;
 const XS = SPORTS.filter(s => s.k !== 'run');
 function renderHealth(){
   renderSleepIns();
+  const run = view === 'run';
+  document.getElementById('hTiles').className = run ? 'tiles three' : 'tiles';
   tilesInto('hTiles', [
-    TILE.steps(), TILE.rhr(), TILE.sleep(),
+    ...(run ? [] : [TILE.steps(), TILE.rhr(), TILE.sleep()]),     // Running has these tiles already
     TILE.daily('str', 'Stress, 7-day avg', '', false, v=>'stress '+n0(v)),
     TILE.daily('bbx', 'Body Battery peak, 7-day', '', true, v=>'peak '+n0(v)),
     TILE.daily('cal', 'Active calories, 7-day', 'kcal', true, v=>n0(v)+' kcal/day'),
@@ -1140,8 +1144,10 @@ function renderHealth(){
     stacks:[{c:'#3987e5', v:ax.dts.map(t=>dayMap[t] ? dayMap[t].st||0 : 0)}],
     tip: i => `<div class="t">${fdy(ax.dts[i])}</div>${row('Steps', n0(dayMap[ax.dts[i]] && dayMap[ax.dts[i]].st))}${sg?row('Goal', n0(sg)):''}`});
   document.getElementById('hStepsLegend').innerHTML = sg ? `<span><i class="ln" style="background:#c3c2b7"></i>Your daily goal, ${n0(sg)}</span>` : '';
-  dailyWithAvg('hRhr', 'hRhrLegend', 'rhr', 'Resting HR', ' bpm', x0, x1);
-  sleepChart('hSleep', 'hSleepLegend', x0, x1);
+  if (!run){
+    dailyWithAvg('hRhr', 'hRhrLegend', 'rhr', 'Resting HR', ' bpm', x0, x1);
+    sleepChart('hSleep', 'hSleepLegend', x0, x1);
+  }
   dailyWithAvg('hStress', 'hStressLegend', 'str', 'Stress', '', x0, x1, 'No stress readings in this range.', 0);
   const hi = D.days.filter(d=>d.bbx!=null).map(d=>[d.t, d.bbx]), lo = D.days.filter(d=>d.bbn!=null).map(d=>[d.t, d.bbn]);
   lineChart(document.getElementById('hBB'), {x0, x1, h:190, gap:4, min:0, empty:'No Body Battery readings in this range.',
@@ -1390,12 +1396,16 @@ function actCharts(root, a){
 // Running or Health & strength: remembered in this browser only
 let view = 'run';
 try { if (localStorage.getItem('view') === 'health') view = 'health'; } catch (e) { /* storage blocked: start on Running */ }
+// Running shows everything; Health & strength shows only the health section.
 function renderView(){
-  document.getElementById('runView').hidden = view !== 'run';
-  document.getElementById('healthView').hidden = view === 'run';
+  const run = view === 'run';
+  document.getElementById('runView').hidden = !run;
+  // Running already has resting HR and sleep charts in Trends: don't show them twice
+  document.getElementById('hRhrCard').hidden = run;
+  document.getElementById('hSleepCard').hidden = run;
   document.getElementById('view').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === view));
-  if (view === 'run'){ renderHero(); renderPlan(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderForm(); renderZones(); renderRecords(); }
-  else renderHealth();
+  if (run){ renderHero(); renderPlan(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderForm(); renderZones(); renderRecords(); }
+  renderHealth();
 }
 function renderAll(){
   renderReady(); renderToday(); renderView();

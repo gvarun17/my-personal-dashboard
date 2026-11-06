@@ -187,12 +187,18 @@ for (const sc of manifest) {
         'hrvChart', 'sleepChart', 'loadChart', 'zbar', 'bigTable', ...(sc.empty ? [] : ['recs'])];
       const HEALTH = ['sleepIns', 'hTiles', 'xChart', 'xTable', 'hSteps', 'hRhr', 'hSleep', 'hStress', 'hBB', 'hCal'];
       const startHealth = !!(sc.storage && sc.storage.view === 'health');
-      // Every section of the view on screen rendered something
-      for (const id of ['ready', 'today', 'todayActs', 'foot', 'meta', ...(startHealth ? HEALTH : RUN)]) {
+      // Every section on screen rendered something. Running shows the health section too,
+      // without the resting HR and sleep charts it already has in Trends.
+      const ALSO_IN_RUN = HEALTH.filter((id) => id !== 'hRhr' && id !== 'hSleep');
+      for (const id of ['ready', 'today', 'todayActs', 'foot', 'meta', ...(startHealth ? HEALTH : [...RUN, ...ALSO_IN_RUN])]) {
         assert.ok(text(page, id).length > 0, `${id} is empty`);
       }
       assert.strictEqual(page.byId.runView.hidden, startHealth);
-      assert.strictEqual(page.byId.healthView.hidden, !startHealth);
+      assert.ok(!page.byId.healthView, 'the health section is never hidden');
+      assert.strictEqual(page.byId.hRhrCard.hidden, !startHealth);
+      assert.strictEqual(page.byId.hSleepCard.hidden, !startHealth);
+      assert.strictEqual(page.byId.hTiles.className, startHealth ? 'tiles' : 'tiles three');
+      assert.strictEqual((text(page, 'hTiles').match(/class="card tile"/g) || []).length, startHealth ? 6 : 3);
 
       // Tap every activity open (a tap between rows is ignored)
       const acts = page.byId.todayActs;
@@ -264,7 +270,8 @@ for (const sc of manifest) {
       exercise(page);
       assert.match(text(page, 'wkTitle') || page.byId.wkTitle.textContent, /by sport/);
       for (const id of HEALTH) assert.ok(text(page, id).length > 0, `${id} is empty`);
-      assert.strictEqual(page.byId.healthView.hidden, false);
+      assert.strictEqual(page.byId.runView.hidden, true);
+      assert.strictEqual(page.byId.hRhrCard.hidden, false);
       if (sc.storage !== 'blocked') assert.strictEqual(page.store.view, 'health', 'view is remembered');
 
       // Resize: same width is ignored, a new width re-renders

@@ -18,7 +18,9 @@ any device: laptop, phone or tablet.
   run/walk/stand split, heart rate zones and synced graphs of heart rate, pace,
   cadence, power and breathing rate.
 - **Two views**, switched at the top (your browser remembers the choice):
-  - **Running**: everything below.
+  - **Running**: everything below, including the whole Health & strength
+    section at the end (without the resting heart rate and sleep charts and
+    tiles it already shows higher up).
   - **Health & strength**: sleep insights for the last 2 weeks (sleep vs your
     need, sleep debt, how steady your bedtime and wake-up are, overnight stress,
     a chart of when you slept and plain-English tips), plus steps, resting heart rate, sleep, stress, Body
