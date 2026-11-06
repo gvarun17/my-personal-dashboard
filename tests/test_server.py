@@ -190,6 +190,19 @@ class SetupHelperTests(Isolated):
         for z in settings.time_zones()[:3]:
             self.assertIn(f'<option value="{z}">', page)
 
+    def test_weekly_goal_only_on_the_settings_page(self):
+        self.assertIn('<option value="minutes" selected>', server.setup_page())
+        self.assertIn('placeholder="suggested"', server.setup_page())
+        settings.save(goal_type="run_km", goal_value=12.5)
+        page = server.setup_page()
+        self.assertIn('<option value="run_km" selected>Running distance (km a week)', page)
+        self.assertIn('value="12.5"', page)
+        page = server.setup_page(goal=("runs", "<b>"))                 # typed values come back, escaped
+        self.assertIn('<option value="runs" selected>', page)
+        self.assertIn('value="&lt;b&gt;"', page)
+        self.clear_key()
+        self.assertNotIn("Weekly goal", server.setup_page())          # first setup: three things only
+
     def test_setup_page_keeps_typed_values(self):
         page = server.setup_page(name='A "quoted" name', tz="Asia/Tokyo")
         self.assertIn('value="A &quot;quoted&quot; name"', page)
@@ -399,6 +412,25 @@ class SetupRouteTests(HandlerTests):
         check.assert_not_called()
         self.assertEqual(settings.load()["key"], "test-key")
         self.assertEqual(settings.load()["name"], "New Name")
+
+    def test_weekly_goal_is_saved(self):
+        with mock.patch.object(garmin_api, "check_key") as check:
+            r, _ = self.post({"name": "Tester", "tz": "Europe/London", "goal_type": "runs", "goal_value": "4"})
+            self.assertEqual(r.status, 303)
+            self.assertEqual((settings.load()["goal_type"], settings.load()["goal_value"]), ("runs", 4))
+            r, _ = self.post({"name": "Tester", "tz": "Europe/London", "goal_type": "km", "goal_value": ""})
+            self.assertEqual(r.status, 303)
+        check.assert_not_called()
+        saved = settings.load()
+        self.assertEqual((saved["goal_type"], saved["goal_value"], saved["key"]), ("km", "", "test-key"))
+
+    def test_bad_weekly_goal_is_shown_and_nothing_is_saved(self):
+        r, body = self.post({"name": "Changed", "tz": "Europe/London", "goal_type": "runs", "goal_value": "2.5"})
+        self.assertEqual(r.status, 400)
+        self.assertIn(b"whole number of runs", body)
+        self.assertIn(b'value="2.5"', body)
+        self.assertEqual(settings.load()["name"], "Tester")
+        self.refresh_start.assert_not_called()
 
     def test_mistakes_are_shown_and_nothing_is_saved(self):
         self.clear_key()

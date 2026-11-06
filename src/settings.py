@@ -83,6 +83,34 @@ def valid_tz(tz):
     return tz in zones if zones else True   # no time zone database here: accept well-formed names
 
 
+# Weekly goal choices: type -> (label, unit, default target, largest allowed)
+GOAL_TYPES = {
+    "minutes": ("Active minutes", "min", 150, 3000),
+    "km": ("Distance, all activities", "km", 15, 500),
+    "run_km": ("Running distance", "km", 10, 300),
+    "runs": ("Number of runs", "runs", 3, 14),
+}
+
+
+def clean_goal(goal_type, value):
+    """(type, target or None for the default) from the Settings form.
+    Raises ValueError with a message for the page when it doesn't make sense."""
+    goal_type = goal_type if goal_type in GOAL_TYPES else "minutes"
+    value = (value or "").strip().replace(",", ".")
+    if not value:
+        return goal_type, None
+    try:
+        target = float(value)
+    except ValueError:
+        raise ValueError("Please enter your weekly goal as a number, or leave it empty.") from None
+    _, unit, _, top = GOAL_TYPES[goal_type]
+    if not 0 < target <= top:
+        raise ValueError(f"Please pick a weekly goal above 0 and up to {top} {unit}.")
+    if goal_type == "runs" and not target.is_integer():
+        raise ValueError("Please enter a whole number of runs.")
+    return goal_type, (int(target) if target.is_integer() else round(target, 1))
+
+
 def clean_name(name):
     return " ".join((name or "").split())[:NAME_MAX]
 

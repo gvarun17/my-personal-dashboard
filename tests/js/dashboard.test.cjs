@@ -176,7 +176,7 @@ for (const sc of manifest) {
     const page = loadDashboard(sc.html, { width: sc.width, height: sc.height, protocol: sc.protocol, fetchStatus: sc.status });
     try {
       // Every section rendered something
-      for (const id of ['today', 'ring', 'tiles', 'wkChart', 'imChart', 'heat', 'rhrChart', 'hrvChart',
+      for (const id of ['ready', 'ladder', 'ladTip', 'heroNote', 'roadFacts', 'today', 'ring', 'tiles', 'wkChart', 'imChart', 'heat', 'rhrChart', 'hrvChart',
         'sleepChart', 'loadChart', 'zbar', 'bigTable', 'foot', 'meta', ...(sc.empty ? [] : ['recs'])]) {
         assert.ok(text(page, id).length > 0, `${id} is empty`);
       }
@@ -188,6 +188,9 @@ for (const sc of manifest) {
       }
       assert.ok(!/NaN|undefined/.test(text(page, 'tiles')), 'tiles show NaN/undefined');
       assert.ok(!/NaN|undefined/.test(text(page, 'today')), 'today shows NaN/undefined');
+      for (const id of ['ready', 'ring', 'heroNote', 'ladder', 'ladTip', 'roadFacts']) {
+        assert.ok(!/NaN|undefined|null/.test(text(page, id)), `${id} shows NaN/undefined/null`);
+      }
 
       // Hover/tap everything
       const fired = exercise(page);

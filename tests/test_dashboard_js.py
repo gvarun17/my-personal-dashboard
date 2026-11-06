@@ -76,7 +76,9 @@ class DashboardJavaScriptTests(TempDataCase):
         settings.save(name="Test Runner", tz="Europe/London", key="not-a-real-key")
         scenarios.append({"name": "full data, desktop, file", "html": self.build_html("full"),
                           "width": 1280, "protocol": "file:",
-                          "expect": [["today", "Steps"], ["tiles", "Distance this week"], ["recs", "Longest distance"]],
+                          "expect": [["today", "Steps"], ["tiles", "Distance this week"], ["recs", "Longest distance"],
+                                     ["ready", "Today's call"], ["ready", "Resting HR"], ["ladder", "Reached"],
+                                     ["heroNote", "Goal from Garmin Connect"]],
                           "expectText": [["who", "Test Runner's training log"]]})
 
         # 2. Same data on a phone, served by server.py: a refresh is running when the page opens
@@ -103,9 +105,12 @@ class DashboardJavaScriptTests(TempDataCase):
             if isinstance(v.get("intensityMinutes"), dict):
                 v["intensityMinutes"].update(moderate=1, vigorous=0)
         self.write("daily.json", daily)
+        settings.save(goal_type="runs", goal_value=3)          # your own goal: 3 runs a week
         scenarios.append({"name": "rest day, tablet", "html": self.build_html("rest"), "width": 760,
                           "protocol": "http:", "status": "down",
-                          "expect": [["todayActs", "No activities yet today"], ["roadFacts", "Next stop <b>Marathon"]]})
+                          "expect": [["todayActs", "No activities yet today"], ["ladTip", "Next: Marathon."],
+                                     ["heroNote", "more run"], ["ring", "of 3 runs"]],
+                          "expectText": [["goalLab", "This week · number of runs"]]})
 
         # 5. Long bike ride today with elevation, plus an activity Garmin has no graphs for yet
         self.reset_data()
@@ -120,8 +125,14 @@ class DashboardJavaScriptTests(TempDataCase):
                                                       ("rr", 7), ("el", 9))}
         today["acts"]["11"] = {"series": {}}
         self.write("today.json", today)
+        settings.save(goal_type="km", goal_value=400)          # a goal far out of reach: no streak yet
+        sleep = self.read("sleep.json")
+        sleep[ds(TODAY)] = {"sleepTimeSeconds": 4 * 3600}     # short night, no sleep score
+        self.write("sleep.json", sleep)
         scenarios.append({"name": "long ride today", "html": self.build_html("ride"), "width": 1440,
-                          "protocol": "file:", "expect": [["act0c", "Speed"], ["act0c", "Elevation"], ["act1c", "no detailed graphs"]]})
+                          "protocol": "file:", "expect": [["act0c", "Speed"], ["act0c", "Elevation"], ["act1c", "no detailed graphs"],
+                                                         ["heroNote", "Hit it this week to start a streak"],
+                                                         ["ring", "of 400 km"], ["ready", "4h 00m"]]})
 
         # 6. Sparse, odd data: missing fields everywhere, single readings, tiny screen
         self.reset_data()

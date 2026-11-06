@@ -86,6 +86,17 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(settings.clean_key(" abc\n def\t"), "abcdef")
         self.assertEqual(settings.clean_key(None), "")
 
+    def test_clean_goal(self):
+        self.assertEqual(settings.clean_goal("km", " 12,5 "), ("km", 12.5))
+        self.assertEqual(settings.clean_goal("minutes", "200"), ("minutes", 200))
+        self.assertEqual(settings.clean_goal("runs", "3.0"), ("runs", 3))
+        self.assertEqual(settings.clean_goal("run_km", ""), ("run_km", None))      # suggested target
+        self.assertEqual(settings.clean_goal("laps", None), ("minutes", None))     # unknown type
+        for gtype, value, message in (("km", "lots", "as a number"), ("km", "0", "above 0 and up to 500 km"),
+                                      ("minutes", "9999", "up to 3000 min"), ("runs", "2.5", "whole number")):
+            with self.assertRaisesRegex(ValueError, message):
+                settings.clean_goal(gtype, value)
+
 
 if __name__ == "__main__":
     unittest.main()

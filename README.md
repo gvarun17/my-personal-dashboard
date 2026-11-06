@@ -6,14 +6,23 @@ Docker container, so it works the same on **macOS, Windows and Linux**
 (Intel/AMD and ARM, including Apple Silicon and Raspberry Pi 4/5). Open it on
 any device: laptop, phone or tablet.
 
+- **Today's call**: should today be a training day, an easy day or a rest day?
+  It compares last night's HRV, your sleep, your resting heart rate (against
+  your own 30-day normal) and your morning Body Battery, and says why. A guide
+  from your watch data, not medical advice.
 - **Today**: steps, active minutes, calories, resting heart rate, Body Battery,
   stress, last night's sleep and HRV, and heart rate and Body Battery through
   the day.
 - **Today's activities**: one card each, with key stats, run/walk/stand split,
   heart rate zones and synced graphs of heart rate, pace, cadence, power and
   breathing rate.
-- **Your training**: weekly active minutes, a "road to the marathon" tracker,
-  this week vs recent weeks, trends (resting HR, HRV, sleep, training load),
+- **Weekly goal and streak**: active minutes (Garmin's goal by default), total
+  km, running km or number of runs a week, set in **Settings**. Shows what's
+  left this week and how many weeks in a row you've hit it.
+- **Milestones, from first run to Ironman**: first run, 1 km, 5K, 10K, half
+  marathon, marathon, half Ironman and Ironman, with the date you reached each
+  one and an estimate for the next (adding about 10% a week to your longest run).
+- **Your training**: this week vs recent weeks, trends (resting HR, HRV, sleep, training load),
   records and biggest days.
 - Pulls new data **every hour** by itself, plus a **Refresh** button.
 - A **start page** that asks for your name, time zone and Garmin key, and
@@ -74,8 +83,9 @@ mistyped or expired key gets a clear message right away. Then it starts
 downloading your data. The first download takes a minute or two, and the page
 reloads by itself when it's ready.
 
-To change your name, time zone or key later, click **Settings** at the top of
-the dashboard. Leave the key box empty to keep your current key.
+To change your name, time zone, weekly goal or key later, click **Settings** at
+the top of the dashboard. Leave the key box empty to keep your current key, and
+the goal number empty for the suggested target.
 
 Where the key is kept: in `settings.json` inside the app's data folder (the
 `garmin-data` Docker volume), readable only by the app. It's never shown again
@@ -230,7 +240,8 @@ my-personal-dashboard/
 │   ├── garmin_api.py     Garmin Personal API client (token, retries)
 │   ├── pull.py           downloads your data into data/
 │   ├── build.py          turns data/ into dashboard.html
-│   ├── settings.py       your name, time zone and key from the start page
+│   ├── settings.py       your name, time zone, weekly goal and key from the start page
+│   ├── coach.py          today's call, weekly goal and streak, milestones
 │   └── test_connection.py  checks your key
 ├── tests/                offline test suite (Python + dashboard JavaScript)
 ├── .github/              pull request checks and Dependabot
@@ -245,7 +256,8 @@ my-personal-dashboard/
 |---|---|
 | `src/server.py` | The web app. Serves the dashboard and the start page, runs `pull.py` + `build.py` on a timer and when you press Refresh, and asks for a login if a password is set. Rejects form posts from other websites. Routes: `/`, `/setup`, `POST /setup`, `POST /refresh`, `/status`, `/healthz`. |
 | `src/garmin_api.py` | API client. Finds the key (start page, then environment, then `.env.local`), swaps it for a 24-hour token (cached and renewed after 20 hours) and retries on 429/502/503. |
-| `src/settings.py` | Saves the start page's name, time zone and key in `data/settings.json`, readable only by your user account. |
+| `src/coach.py` | Works out the top cards from your data: today's call (training, easy or rest day), the weekly goal and streak, and the milestone ladder. |
+| `src/settings.py` | Saves the start page's name, time zone, weekly goal and key in `data/settings.json`, readable only by your user account. |
 | `src/pull.py` | Downloads activities, daily summaries, sleep, HRV, weight, fitness age, heart rate zones and today's activity detail. Only fetches what is new. |
 | `src/build.py` | Turns the data into one self-contained `dashboard.html` (data, styles and SVG charts inline; nothing loaded from the internet). |
 | `src/test_connection.py` | Lists your 5 latest activities to check the key. |

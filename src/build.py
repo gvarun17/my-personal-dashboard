@@ -10,6 +10,7 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 
+import coach
 import settings
 
 ROOT = Path(__file__).resolve().parent.parent   # project folder (holds data/ and dashboard.html)
@@ -137,6 +138,7 @@ def build():
         "start": state.get("start"),
         "name": settings.public().get("name") or "",
         "td": td,
+        "coach": coach.build_coach(td["date"], daily_raw, sleep_raw, hrv_raw, days, acts, settings.public()),
     }
     blob = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
     OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -221,7 +223,7 @@ TEMPLATE = r"""<!doctype html>
   --ink:#f0efec; --ink2:#c3c2b7; --muted:#898781;
   --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
   --accent:#3987e5; --accent-track:#104281;
-  --good:#0ca30c; --bad:#e66767;
+  --good:#0ca30c; --warn:#e0a21b; --bad:#e66767;
   --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 }
 *{box-sizing:border-box}
@@ -255,18 +257,37 @@ h2{font-size:16px;margin:0;font-weight:620}
 .dot.fut i{border-style:solid;border-color:var(--grid)}
 .hero-note{color:var(--ink2);font-size:13px;margin:10px 0 0;max-width:30ch}
 .road h3{margin:0 0 2px;font-size:15px;font-weight:620}
-.track{position:relative;height:74px;margin:18px 34px 0 26px}
-.track .bg,.track .fg{position:absolute;left:0;top:14px;height:6px;border-radius:3px}
-.track .bg{right:0;background:var(--accent-track)}
-.track .fg{background:var(--accent)}
-.stop{position:absolute;top:8px;transform:translateX(-50%);text-align:center;width:72px}
-.stop i{display:block;width:18px;height:18px;margin:0 auto;border-radius:50%;background:var(--card);border:2px solid var(--accent-track)}
-.stop.done i{background:var(--accent);border-color:var(--accent)}
-.stop b{display:block;font-size:12px;margin-top:6px;font-weight:600}
-.stop span{display:block;font-size:10.5px;color:var(--muted);line-height:1.25}
-.you{position:absolute;top:-10px;transform:translateX(-50%);font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--ink);background:var(--accent);padding:1px 6px;border-radius:6px;white-space:nowrap}
 .road-facts{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:10px;color:var(--ink2);font-size:13px}
 .road-facts b{color:var(--ink);font-weight:600}
+/* milestone ladder */
+.ladder{list-style:none;margin:14px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(4,auto);grid-auto-flow:column;gap:2px 18px}
+.ladder li{display:flex;align-items:center;gap:10px;padding:5px 0;min-width:0}
+.ladder li i{flex:none;width:20px;height:20px;border-radius:50%;border:2px solid var(--accent-track);display:flex;align-items:center;justify-content:center;font-size:11px;font-style:normal;font-weight:800;color:#fff}
+.ladder li.done i{background:var(--accent);border-color:var(--accent)}
+.ladder li.next i{border-color:var(--accent);box-shadow:0 0 0 3px rgba(57,135,229,.28)}
+.ladder li div{min-width:0}
+.ladder b{display:block;font-size:13px;font-weight:600}
+.ladder li.fut b{color:var(--ink2);font-weight:500}
+.ladder span{display:block;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ladder li.next span{color:var(--ink2)}
+.ladtip{background:var(--raise);border-radius:12px;padding:10px 12px;margin:12px 0 0;font-size:13px;color:var(--ink2)}
+.ladtip b{color:var(--ink)}
+/* readiness */
+.ready{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:16px 26px;align-items:center;margin-bottom:14px}
+.call{display:flex;gap:14px;align-items:flex-start}
+.badge,.ic{flex:none;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:#0d0d0d;font-style:normal}
+.badge{width:42px;height:42px;font-size:20px}
+.ic{width:16px;height:16px;font-size:10.5px}
+.badge.go,.ic.good{background:var(--good)} .badge.easy,.ic.ok{background:var(--warn)} .badge.rest,.ic.poor{background:var(--bad)}
+.badge.none,.ic.none{background:var(--axis);color:var(--ink2)}
+.call h2{font-size:20px;font-weight:650}
+.call p{color:var(--ink2);margin:4px 0 0;font-size:13.5px}
+.call .disc{color:var(--muted);font-size:11.5px;margin-top:6px}
+.sigs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.sig{background:var(--raise);border-radius:12px;padding:10px 12px;min-width:0}
+.sig .lab{font-size:11.5px;color:var(--ink2);font-weight:550;display:flex;align-items:center;gap:6px}
+.sig .val{font-size:20px;font-weight:650;margin-top:3px;white-space:nowrap}
+.sig .sub{font-size:11.5px;color:var(--muted);line-height:1.35;margin-top:2px}
 /* tiles */
 .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:14px}
 .tile{padding:14px 14px 10px}
@@ -353,8 +374,8 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
 #tip .r span:last-child{font-variant-numeric:tabular-nums;font-weight:600}
 #tip .k{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
 @media (max-width:1000px){.tiles{grid-template-columns:repeat(3,1fr)}.recs{grid-template-columns:repeat(2,1fr)}}
-@media (max-width:920px){.hero{grid-template-columns:1fr}}
-@media (max-width:760px){.grid2{grid-template-columns:1fr}}
+@media (max-width:920px){.hero{grid-template-columns:1fr}.ready{grid-template-columns:1fr}}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}.sigs{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:520px){
   header{align-items:flex-start}.hdr-r{width:100%;justify-content:space-between}
   .wrap{padding:20px 12px 40px}
@@ -363,8 +384,8 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
   .tile .val{font-size:23px}
   .card{padding:14px;border-radius:14px}
   .ring{width:136px;height:136px}.hero-num{font-size:48px}
-  .stop{width:52px}.stop span{display:none}.stop b{font-size:10.5px}
-  .track{margin:18px 24px 0 18px}
+  .ladder{grid-template-columns:1fr;grid-template-rows:none;grid-auto-flow:row}
+  .sig .val{font-size:18px}
   .meta{text-align:left}
 }
 </style>
@@ -379,13 +400,14 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
     <div class="hdr-r"><div class="meta" id="meta"></div><a id="settingsLink" class="rbtn" href="setup" hidden>Settings</a><button id="refreshBtn" class="rbtn" hidden>Refresh</button></div>
   </header>
 
+  <section class="card ready" id="ready" aria-live="polite"></section>
   <section class="card today" id="today"></section>
   <div id="todayActs"></div>
 
   <div class="sechead" style="margin-top:26px"><h2>Your training</h2></div>
   <section class="card hero">
     <div>
-      <div class="eyebrow">This week · active minutes</div>
+      <div class="eyebrow" id="goalLab">This week</div>
       <div class="ringbox" style="margin-top:12px">
         <div class="ring" id="ring"></div>
         <div>
@@ -396,8 +418,9 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
     </div>
     <div class="road">
       <div class="eyebrow">The long game</div>
-      <h3>Road to the marathon, then Ironman</h3>
-      <div class="track" id="track"></div>
+      <h3>From first run to Ironman</h3>
+      <ol class="ladder" id="ladder"></ol>
+      <p class="ladtip" id="ladTip"></p>
       <div class="road-facts" id="roadFacts"></div>
     </div>
   </section>
@@ -654,47 +677,60 @@ function weekAgg(w){
 const daysIn = (a, b) => D.days.filter(d => d.t >= a && d.t < b);
 function weekly(fn){ return WEEKS.map(w => fn(w, w+7*DAY)); }
 
-// ---------- hero ----------
+// ---------- readiness ----------
+const MARK = {go:'✓', easy:'–', rest:'!', good:'✓', ok:'–', poor:'!', none:'·'};
+function renderReady(){
+  const R = D.coach.ready, lv = R.level || 'none';
+  document.getElementById('ready').innerHTML =
+    `<div class="call"><i class="badge ${lv}" aria-hidden="true">${MARK[lv]}</i><div>
+      <div class="eyebrow">Today's call</div><h2>${esc(R.title)}</h2><p>${esc(R.advice)}</p>
+      <p class="disc">A guide from your watch data, not medical advice.</p></div></div>
+    <div class="sigs">${R.signals.map(g => `<div class="sig"><div class="lab"><i class="ic ${g.state}" aria-label="${g.state==='none'?'no data':g.state}">${MARK[g.state]}</i>${esc(g.label)}</div>
+      <div class="val">${g.value==null?'–':esc(g.value)}</div><div class="sub">${esc(g.note)}</div></div>`).join('')}</div>`;
+}
+
+// ---------- hero: weekly goal and milestones ----------
 function renderHero(){
-  const wk = daysIn(W0, W0+7*DAY);
-  const im = sum(wk.map(d=>d.im)), goal = (D.days.length && D.days[D.days.length-1].img) || 150;
+  const G = D.coach.goal, km = G.unit === 'km', f = km ? n1 : n0;
+  const im = G.value, goal = G.target, hit = im >= goal;
+  const tg = (Number.isInteger(goal) ? n0 : n1)(goal);
   const pct = Math.min(im/goal, 1), size = document.getElementById('ring').clientWidth || 168, sw = 12, R = (size-sw)/2, C = 2*Math.PI*R;
+  document.getElementById('goalLab').textContent = 'This week · ' + G.label.toLowerCase();
   document.getElementById('ring').innerHTML =
-    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="${im} of ${goal} active minutes this week">
+    `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="${f(im)} of ${tg} ${G.unit} this week">
       <circle cx="${size/2}" cy="${size/2}" r="${R}" fill="none" stroke="var(--accent-track)" stroke-width="${sw}"/>
-      <circle cx="${size/2}" cy="${size/2}" r="${R}" fill="none" stroke="${im>=goal?'#0ca30c':'#3987e5'}" stroke-width="${sw}" stroke-linecap="round"
+      <circle cx="${size/2}" cy="${size/2}" r="${R}" fill="none" stroke="${hit?'#0ca30c':'#3987e5'}" stroke-width="${sw}" stroke-linecap="round"
         stroke-dasharray="${C*pct} ${C}" transform="rotate(-90 ${size/2} ${size/2})"/></svg>
-     <div class="c"><div class="hero-num">${n0(im)}</div><div class="hero-of">of ${goal} min</div></div>`;
+     <div class="c"><div class="hero-num">${f(im)}</div><div class="hero-of">of ${tg} ${G.unit}</div></div>`;
   const names = ['M','T','W','T','F','S','S'];
   document.getElementById('dots').innerHTML = names.map((n,i) => {
     const t = W0 + i*DAY, d = dayMap[t], active = actsOn(t).length || (d && d.im >= 10);
     const cls = t > TODAY ? 'fut' : (active ? 'on' : '');
     return `<div class="dot ${cls}" title="${fdy(t)}"><i></i>${n}</div>`;
   }).join('');
-  const left = Math.round((W0 + 7*DAY - TODAY)/DAY), need = goal - im;
-  const hit = weekly((a,b)=>sum(daysIn(a,b).map(d=>d.im))).slice(0,-1).filter(v=>v>=goal).length;
-  document.getElementById('heroNote').innerHTML = (need <= 0
-    ? `Goal reached this week. Nice work.`
-    : `<b>${n0(need)} min to go</b> with ${left} day${left===1?'':'s'} left, about ${n0(Math.ceil(need/left))} a day.`)
-    + `<br>You hit 150 in <b>${hit} of the last ${NW-1}</b> full weeks.`;
+  const days = `${G.left} day${G.left===1?'':'s'} left`;
+  const todo = hit ? 'Goal reached this week. Nice work.'
+    : G.type === 'runs' ? `<b>${G.need} more run${G.need===1?'':'s'}</b> with ${days}.`
+    : `<b>${f(G.need)} ${G.unit} to go</b> with ${days}, about ${f(G.perDay)} a day.`;
+  const streak = G.streak ? `<b>${G.streak}-week streak</b>${G.best > G.streak ? ` (best ${G.best})` : ''}.` : 'Hit it this week to start a streak.';
+  const src = G.source === 'you' ? '' : `<br><span style="color:var(--muted)">${G.source==='garmin'?'Goal from Garmin Connect.':'Suggested goal.'} Set your own in Settings.</span>`;
+  document.getElementById('heroNote').innerHTML = `${todo}<br>${streak}`
+    + (G.of ? ` You hit it in ${G.hits} of the last ${G.of} full week${G.of===1?'':'s'}.` : '') + src;
 
-  // Road
-  const stops = [{km:0,l:'Start',s:'Move daily'},{km:5,l:'5K',s:''},{km:10,l:'10K',s:''},{km:21.1,l:'Half',s:'21.1 km'},{km:42.2,l:'Marathon',s:'42.2 km'},{km:null,l:'Ironman',s:'3.8 swim · 180 bike · 42.2 run'}];
-  const pos = i => i/(stops.length-1)*100;
-  const foot = D.acts.filter(a => ONFOOT.has(a.s));
-  const best = foot.reduce((b,a) => a.km > (b?b.km:0) ? a : b, null), L = best ? best.km : 0;
-  let p = 0;
-  for (let i = 0; i < 4; i++) if (L >= stops[i].km) p = pos(i) + Math.min(1,(L-stops[i].km)/(stops[i+1].km-stops[i].km))*(pos(i+1)-pos(i));
-  document.getElementById('track').innerHTML = `<div class="bg"></div><div class="fg" style="width:${p}%"></div>`
-    + stops.map((st,i) => `<div class="stop ${st.km!=null && L>=st.km?'done':''}" style="left:${pos(i)}%"><i></i><b>${st.l}</b><span>${st.s}</span></div>`).join('')
-    + `<div class="you" style="left:${p}%">YOU</div>`;
-  const runs = D.acts.filter(a=>a.s==='run'), longestRun = runs.reduce((b,a)=>Math.max(b,a.km),0);
-  const next = stops.slice(1,5).find(st => st.km > L);
+  // Milestones
+  const L = D.coach.ladder;
+  document.getElementById('ladder').innerHTML = L.steps.map((st,i) => {
+    const cls = st.date ? 'done' : i === L.next ? 'next' : 'fut';
+    const sub = st.date ? 'Reached ' + fd(P(st.date), {day:'numeric', month:'short', year:'numeric'})
+      : i === L.next && L.togo != null ? `Next · ${n1(L.togo)} km to go` : (i === L.next ? 'Next · ' : '') + st.sub;
+    return `<li class="${cls}"><i aria-hidden="true">${st.date ? '✓' : ''}</i><div><b>${esc(st.label)}</b><span>${esc(sub)}</span></div></li>`;
+  }).join('');
+  const nx = L.next == null ? null : L.steps[L.next];
+  document.getElementById('ladTip').innerHTML = (nx ? `<b>Next: ${esc(nx.label)}.</b> ` : '') + esc(L.tip);
   const last28 = D.acts.filter(a => a.t > TODAY-28*DAY);
   document.getElementById('roadFacts').innerHTML =
-    `<span>Longest on foot <b>${n1(L)} km</b>${best?` (${esc(best.ty)}, ${fd(best.t)})`:''}</span>`
-    + (next ? `<span>Next stop <b>${next.l}</b>, ${n1(next.km-L)} km to go</span>` : '')
-    + `<span>Runs so far <b>${runs.length}</b>${runs.length?`, longest ${n1(longestRun)} km`:''}</span>`
+    `<span>Longest run <b>${L.longest ? n1(L.longest.km)+' km' : '–'}</b>${L.longest ? ` (${fd(P(L.longest.d))})` : ''}</span>`
+    + `<span>Runs so far <b>${L.runs}</b></span>`
     + `<span>Sessions, last 4 weeks <b>${last28.length}</b></span>`;
 }
 
@@ -1089,7 +1125,7 @@ function actCharts(root, a){
 
 // ---------- page ----------
 function renderAll(){
-  renderToday(); renderHero(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderZones(); renderRecords();
+  renderReady(); renderToday(); renderHero(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderZones(); renderRecords();
 }
 if (D.name){ document.getElementById('who').textContent = D.name + "'s training log"; document.title = D.name + "'s training"; }
 document.getElementById('meta').innerHTML = `Updated ${esc(D.built)}<br>${D.acts.length} activities · ${D.days.length} days · ${D.sleep.length} nights`;

@@ -169,7 +169,9 @@ label{display:block;font-weight:600;margin:0 0 6px}
 .field{margin-bottom:20px}
 .hint{color:var(--muted);font-size:13px;margin:6px 0 0}
 input{width:100%;font:inherit;color:var(--ink);background:var(--page);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
-input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+select{font:inherit;color:var(--ink);background:var(--page);border:1px solid var(--border);border-radius:10px;padding:11px 12px;flex:1;min-width:0}
+.goalrow{display:flex;gap:8px}.goalrow input{width:110px;flex:none}
 .keyrow{display:flex;gap:8px}
 .keyrow input{flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px}
 button{font:inherit;font-weight:600;cursor:pointer;border-radius:10px;border:1px solid var(--border);padding:11px 16px;background:var(--raise);color:var(--ink)}
@@ -204,6 +206,7 @@ a{color:#86b6ef}
 <li>Click <b>Create Key</b>, accept the terms, choose <b>1 year</b> and click <b>Create</b>.</li>
 <li>Copy the key right away (Garmin shows it only once) and paste it above.</li>
 </ol></div>
+{goal}
 <button class="primary" type="submit" id="go">{button}</button>
 <p class="privacy">Read-only: this app can't change anything in your Garmin account. Your key is checked with
 Garmin, then saved only on this computer and never shown again.</p>
@@ -228,7 +231,26 @@ Garmin, then saved only on this computer and never shown again.</p>
 </script></body></html>"""
 
 
-def setup_page(name="", tz="", error=""):
+GOAL_FIELD = """<div class="field"><label for="goal_type">Weekly goal</label>
+<div class="goalrow"><select id="goal_type" name="goal_type" aria-label="What to count">{options}</select>
+<input id="goal_value" name="goal_value" inputmode="decimal" value="{value}" placeholder="{placeholder}" aria-label="Target per week"></div>
+<p class="hint">Counted Monday to Sunday. Leave the number empty for the suggested target.</p></div>"""
+
+
+def goal_field(goal_type=None, goal_value=None):
+    saved = settings.public()
+    goal_type = goal_type or saved.get("goal_type") or "minutes"
+    goal_value = saved.get("goal_value") if goal_value is None else goal_value
+    esc = html.escape
+    options = "".join(
+        f'<option value="{k}"{" selected" if k == goal_type else ""}>{esc(label)} ({unit} a week)</option>'
+        for k, (label, unit, _, _) in settings.GOAL_TYPES.items())
+    return (GOAL_FIELD.replace("{options}", options)
+            .replace("{value}", esc(str(goal_value or "")))
+            .replace("{placeholder}", "suggested"))
+
+
+def setup_page(name="", tz="", error="", goal=None):
     """The start page. Never contains the key itself."""
     saved = settings.public()
     key, source = garmin_api.find_key()
@@ -241,7 +263,9 @@ def setup_page(name="", tz="", error=""):
     fields = {
         "title": "Welcome! Let's set up your dashboard" if first else "Settings",
         "lead": ("Three quick things and your Garmin data starts downloading."
-                 if first else "Change your name, time zone or Garmin key."),
+                 if first else "Change your name, time zone, weekly goal or Garmin key."),
+        # The weekly goal waits until after the first setup: three things are enough to start.
+        "goal": "" if first else goal_field(*(goal or (None, None))),
         "error": f'<div class="error" role="alert">{esc(error)}</div>' if error else "",
         "name": esc(name), "tz": esc(tz),
         "zones": "".join(f'<option value="{esc(z)}">' for z in settings.time_zones()),
@@ -349,6 +373,22 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(202, json.dumps({"started": started, **refresher.status()}), "application/json")
         self._send(404, "Not found", "text/plain; charset=utf-8")
 
+    @staticmethod
+    def _setup_error(name, tz, key):
+        """What's wrong with the form, in words for the page, or ""."""
+        if not name:
+            return "Please enter your name."
+        if not settings.valid_tz(tz):
+            return "Please pick your time zone from the list (for example Asia/Kolkata)."
+        if not key and not configured():
+            return "Please paste your Garmin Personal API key."
+        if key:
+            try:
+                garmin_api.check_key(key)
+            except garmin_api.GarminError as e:
+                return str(e)
+        return ""
+
     def _post_setup(self):
         try:
             length = int(self.headers.get("Content-Length") or 0)
@@ -360,21 +400,18 @@ class Handler(BaseHTTPRequestHandler):
         def field(k):
             return (form.get(k) or [""])[0]
         name, tz, key = settings.clean_name(field("name")), settings.normalize_tz(field("tz")), settings.clean_key(field("key"))
-        error = ""
-        if not name:
-            error = "Please enter your name."
-        elif not settings.valid_tz(tz):
-            error = "Please pick your time zone from the list (for example Asia/Kolkata)."
-        elif not key and not configured():
-            error = "Please paste your Garmin Personal API key."
-        elif key:
-            try:
-                garmin_api.check_key(key)
-            except garmin_api.GarminError as e:
-                error = str(e)
+        goal, raw_goal = {}, None
+        try:
+            if "goal_type" in form:   # the Settings page has the weekly goal; the first setup doesn't
+                raw_goal = (field("goal_type"), field("goal_value"))
+                gtype, gval = settings.clean_goal(*raw_goal)
+                goal = {"goal_type": gtype, "goal_value": gval or ""}
+            error = self._setup_error(name, tz, key)
+        except ValueError as e:
+            error = str(e)
         if error:
-            return self._send(400, setup_page(name, tz, error))
-        settings.save(name=name, tz=tz, key=key or None)
+            return self._send(400, setup_page(name, tz, error, raw_goal))
+        settings.save(name=name, tz=tz, key=key or None, **goal)
         apply_tz(tz)
         log("Settings saved" + (" with a new Garmin key" if key else ""))
         refresher.start()
