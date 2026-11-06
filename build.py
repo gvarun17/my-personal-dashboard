@@ -6,18 +6,19 @@ Writes one self-contained file: the data, styles and charts are all inside it,
 so it opens in any browser with no server and nothing loaded from the internet.
 """
 import json
+import os
 from datetime import date, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
-OUT = ROOT / "dashboard.html"
+DATA = Path(os.environ.get("GARMIN_DATA_DIR") or ROOT / "data")
+OUT = Path(os.environ.get("DASHBOARD_OUT") or ROOT / "dashboard.html")
 
 
 def load(name, default):
     p = DATA / name
     try:
-        return json.loads(p.read_text()) if p.exists() else default
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else default
     except ValueError:
         return default
 
@@ -126,7 +127,7 @@ def build():
     td = build_today(load("today.json", {}), daily_raw, sleep_raw, hrv_raw, acts_raw)
     payload = {
         "today": date.today().isoformat(),
-        "built": datetime.now().strftime("%-d %b %Y, %H:%M"),
+        "built": f"{datetime.now().day} {datetime.now():%b %Y, %H:%M}",
         "acts": acts, "days": days, "sleep": sleep, "hrv": hrv, "weight": weight,
         "fitAge": r(fit.get("fitnessAge"), 1), "age": fit.get("chronologicalAge"),
         "zones": [z.get(f"zone{i}Floor") for i in range(1, 6)] + [z.get("maxHeartRateUsed")],
@@ -134,7 +135,10 @@ def build():
         "td": td,
     }
     blob = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
-    OUT.write_text(TEMPLATE.replace("__DATA__", blob))
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    tmp = OUT.with_suffix(".tmp")
+    tmp.write_text(TEMPLATE.replace("__DATA__", blob), encoding="utf-8")
+    tmp.replace(OUT)
     print(f"Wrote {OUT}")
     print(f"  {len(acts)} activities, {len(days)} days, {len(sleep)} nights, {len(hrv)} HRV readings")
 
@@ -305,6 +309,10 @@ tr.tot td{font-weight:600;border-bottom:0}
 .hmlegend{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin-top:10px;flex-wrap:wrap}
 .hmlegend i{width:12px;height:12px;border-radius:3px;display:inline-block}
 footer{color:var(--muted);font-size:12px;margin-top:30px;text-align:center}
+.hdr-r{display:flex;align-items:center;gap:12px}
+.rbtn{all:unset;cursor:pointer;font-size:13px;font-weight:600;padding:7px 14px;border-radius:10px;background:var(--raise);border:1px solid var(--border);color:var(--ink)}
+.rbtn:hover{background:#2c2c2a}.rbtn:focus-visible{outline:2px solid var(--accent)}
+.rbtn[disabled]{opacity:.6;cursor:default}
 /* today */
 .today{margin-bottom:14px}
 .todayhead{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 16px;margin-bottom:12px}
@@ -343,6 +351,7 @@ footer{color:var(--muted);font-size:12px;margin-top:30px;text-align:center}
 @media (max-width:920px){.hero{grid-template-columns:1fr}}
 @media (max-width:760px){.grid2{grid-template-columns:1fr}}
 @media (max-width:520px){
+  header{align-items:flex-start}.hdr-r{width:100%;justify-content:space-between}
   .wrap{padding:20px 12px 40px}
   h1{font-size:23px}
   .tiles{grid-template-columns:repeat(2,1fr);gap:10px}
@@ -362,7 +371,7 @@ footer{color:var(--muted);font-size:12px;margin-top:30px;text-align:center}
       <div class="eyebrow">Training log</div>
       <h1>Building the engine</h1>
     </div>
-    <div class="meta" id="meta"></div>
+    <div class="hdr-r"><div class="meta" id="meta"></div><button id="refreshBtn" class="rbtn" hidden>Refresh</button></div>
   </header>
 
   <section class="card today" id="today"></section>
@@ -960,8 +969,8 @@ function dayLine(el, pts, o){
   let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
   (o.windows||[]).forEach(w => { s += `<rect x="${X(w.x0)}" y="${m.t}" width="${Math.max(2, X(w.x1)-X(w.x0))}" height="${H-m.t-m.b}" fill="#ffffff" opacity=".08" rx="3"/>`; });
   tk.forEach(v => { s += `<line class="grid" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="tick" x="${m.l-6}" y="${Y(v)+4}" text-anchor="end">${o.fmt(v)}</text>`; });
-  const every = [60,120,180,240,360].find(e => (W-m.l-m.r)*e/x1 >= 46) || 720;
-  for (let h = 0; h <= x1; h += every){ const px = X(h); if (px > W-m.r-10 && h) continue; s += `<text class="tick" x="${px}" y="${H-6}" text-anchor="${h?'middle':'start'}">${hhmm(h)}</text>`; }
+  const every = [60,120,180,240,360].find(e => (W-m.l-m.r)*e/x1 >= 50) || 720;
+  for (let h = 0; h <= x1; h += every){ const px = X(h); if (px > W-m.r-10 && h) continue; s += `<text class="tick" x="${px}" y="${H-6}" text-anchor="middle">${hhmm(h)}</text>`; }
   let d = '', prev = null;
   pts.forEach((p,j) => {
     const gap = prev && p[0]-prev[0] > 30 && !o.step;
@@ -1087,6 +1096,33 @@ function seg(id, attr, onPick){
 seg('wkMetric', 'm', v => { wkMetric = v; renderWeeks(); });
 seg('range', 'r', v => { rangeM = +v; renderTrends(); });
 renderAll();
+
+// Refresh button: only when served by server.py (not when opened as a file).
+(function(){
+  if (!location.protocol.startsWith('http')) return;
+  const b = document.getElementById('refreshBtn'); b.hidden = false;
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  async function poll(before){
+    for (let i = 0; i < 400; i++){
+      await wait(3000);
+      const s = await fetch('status', {cache:'no-store'}).then(r => r.json()).catch(() => null);
+      if (!s) continue;
+      if (!s.running){
+        if (s.lastError){ b.textContent = 'Refresh failed'; b.title = s.lastError; b.disabled = false; return; }
+        if (s.lastOk !== before) location.reload();
+        else { b.textContent = 'Refresh'; b.disabled = false; }
+        return;
+      }
+    }
+  }
+  b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = 'Refreshing…'; b.title = '';
+    const before = await fetch('status', {cache:'no-store'}).then(r => r.json()).then(s => s.lastOk).catch(() => null);
+    await fetch('refresh', {method:'POST'}).catch(() => null);
+    poll(before);
+  });
+  fetch('status', {cache:'no-store'}).then(r => r.json()).then(s => { if (s.running){ b.disabled = true; b.textContent = 'Refreshing…'; poll(s.lastOk); } }).catch(() => {});
+})();
 let rz, lastW = innerWidth; addEventListener('resize', () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rz); rz = setTimeout(renderAll, 120); });
 </script>
 </body>

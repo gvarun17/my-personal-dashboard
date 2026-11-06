@@ -31,7 +31,7 @@ def load(name, default):
     p = DATA / name
     if p.exists():
         try:
-            return json.loads(p.read_text())
+            return json.loads(p.read_text(encoding="utf-8"))
         except ValueError:
             pass
     return default
@@ -40,7 +40,7 @@ def load(name, default):
 def save(name, obj):
     p = DATA / name
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(obj, separators=(",", ":")))
+    tmp.write_text(json.dumps(obj, separators=(",", ":")), encoding="utf-8")
     tmp.replace(p)
 
 
@@ -180,7 +180,7 @@ def activity_detail(aid):
     folder.mkdir(exist_ok=True)
     cache = folder / f"{aid}.json"
     if cache.exists():
-        return json.loads(cache.read_text())
+        return json.loads(cache.read_text(encoding="utf-8"))
     raw = None
     for size in (1000, 500, 250, 120):           # stay under the ~256 KB response limit
         try:
@@ -209,7 +209,7 @@ def activity_detail(aid):
                     series[short] = [None if v is None else round(v, 2) for v in vals]
     out = {"series": series, **summary}
     if series:                                    # only cache once Garmin has processed it
-        cache.write_text(json.dumps(out, separators=(",", ":")))
+        cache.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
     return out
 
 
@@ -260,7 +260,7 @@ def pull_today(today, acts):
 
 def main():
     full = "--full" in sys.argv
-    DATA.mkdir(exist_ok=True)
+    DATA.mkdir(parents=True, exist_ok=True)
     state = load("state.json", {})
     today = date.today()
 

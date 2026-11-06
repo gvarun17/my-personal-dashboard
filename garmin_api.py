@@ -1,6 +1,8 @@
 """Tiny read-only client for Garmin's Personal API (standard library only).
 
-The API key is read from .env.local and is never printed or logged.
+The API key is read from the GARMIN_PERSONAL_API_KEY environment variable
+(used in the container) or from .env.local, and is never printed or logged.
+Downloaded data goes to GARMIN_DATA_DIR (default: ./data).
 """
 import json
 import os
@@ -10,7 +12,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
+DATA = Path(os.environ.get("GARMIN_DATA_DIR") or ROOT / "data")
 ENV_FILE = ROOT / ".env.local"
 TOKEN_FILE = DATA / "token.json"
 BASE = "https://personal.connectapi.garmin.com"
@@ -24,14 +26,16 @@ class GarminError(Exception):
 
 
 def _read_key():
-    if not ENV_FILE.exists():
-        raise GarminError(f"{ENV_FILE} is missing.")
-    for line in ENV_FILE.read_text().splitlines():
-        if line.startswith("GARMIN_PERSONAL_API_KEY="):
-            key = line.split("=", 1)[1].strip()
-            if key:
-                return key
-    raise GarminError(f"GARMIN_PERSONAL_API_KEY is empty in {ENV_FILE}.")
+    key = (os.environ.get("GARMIN_PERSONAL_API_KEY") or "").strip()
+    if key:
+        return key
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            if line.startswith("GARMIN_PERSONAL_API_KEY="):
+                key = line.split("=", 1)[1].strip()
+                if key:
+                    return key
+    raise GarminError("GARMIN_PERSONAL_API_KEY is not set. Put your key in .env.local.")
 
 
 def _new_token():
@@ -46,13 +50,13 @@ def _new_token():
     except urllib.error.HTTPError as e:
         raise GarminError(
             f"Garmin refused the key (HTTP {e.code}). It may be missing, "
-            f"mistyped or expired: check {ENV_FILE}."
+            "mistyped or expired: check GARMIN_PERSONAL_API_KEY in .env.local."
         ) from None
     except urllib.error.URLError as e:
         raise GarminError(f"Could not reach Garmin: {e.reason}") from None
     if not token:
         raise GarminError("Garmin returned an empty token.")
-    DATA.mkdir(exist_ok=True)
+    DATA.mkdir(parents=True, exist_ok=True)
     TOKEN_FILE.write_text(json.dumps({"token": token, "fetched_at": time.time()}))
     os.chmod(TOKEN_FILE, 0o600)
     return token

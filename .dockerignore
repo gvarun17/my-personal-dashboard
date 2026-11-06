@@ -1,0 +1,10 @@
+# Never copy secrets or personal data into the image
+.env.local
+.env
+data/
+dashboard.html
+*.tmp
+.git/
+__pycache__/
+*.pyc
+.DS_Store
