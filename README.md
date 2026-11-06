@@ -12,10 +12,17 @@ any device: laptop, phone or tablet.
   from your watch data, not medical advice.
 - **Today**: steps, active minutes, calories, resting heart rate, Body Battery,
   stress, last night's sleep and HRV, and heart rate and Body Battery through
-  the day.
-- **Today's activities**: one card each, with key stats, run/walk/stand split,
-  heart rate zones and synced graphs of heart rate, pace, cadence, power and
-  breathing rate.
+  the day. Use **‹ / ›** to step back through the last 90 days (graphs through
+  the day are kept for the last 7).
+- **The day's activities**: a short list. Tap one to open its key stats,
+  run/walk/stand split, heart rate zones and synced graphs of heart rate, pace,
+  cadence, power and breathing rate.
+- **Two views**, switched at the top (your browser remembers the choice):
+  - **Running**: everything below.
+  - **Health & strength**: steps, resting heart rate, sleep, stress, Body
+    Battery and active calories (7-day tiles and daily charts), plus your
+    workouts other than running: hours per week by type and your latest
+    sessions.
 - **Weekly goal and streak**: active minutes (Garmin's goal by default), total
   km, running km or number of runs a week, set in **Settings**. Shows what's
   left this week and how many weeks in a row you've hit it.
@@ -248,7 +255,8 @@ my-personal-dashboard/
 ├── Dockerfile, compose.yaml
 ├── refresh.sh, refresh.bat, run_tests.sh, run_tests.bat
 ├── .env.example          copy to .env.local (git-ignored) for your key and settings
-├── data/                 your downloaded data (git-ignored, created on first run)
+├── data/                 your downloaded data (git-ignored, created on first run;
+│                         days/ holds the last week's graphs through the day)
 └── dashboard.html        the built dashboard (git-ignored)
 ```
 
@@ -258,7 +266,7 @@ my-personal-dashboard/
 | `src/garmin_api.py` | API client. Finds the key (start page, then environment, then `.env.local`), swaps it for a 24-hour token (cached and renewed after 20 hours) and retries on 429/502/503. |
 | `src/coach.py` | Works out the top cards from your data: today's call (training, easy or rest day), the weekly goal and streak, and the milestone ladder. |
 | `src/settings.py` | Saves the start page's name, time zone, weekly goal and key in `data/settings.json`, readable only by your user account. |
-| `src/pull.py` | Downloads activities, daily summaries, sleep, HRV, weight, fitness age, heart rate zones and today's activity detail. Only fetches what is new. |
+| `src/pull.py` | Downloads activities, daily summaries, sleep, HRV, weight, fitness age, heart rate zones, and heart rate, Body Battery and activity detail through each of the last 7 days. Only fetches what is new (each past day once). |
 | `src/build.py` | Turns the data into one self-contained `dashboard.html` (data, styles and SVG charts inline; nothing loaded from the internet). |
 | `src/test_connection.py` | Lists your 5 latest activities to check the key. |
 | `Dockerfile`, `compose.yaml` | The container: `python:3.12-slim`, runs as a non-root user, code in `/app/src`, data in the `/data` volume, health check on `/healthz`. |

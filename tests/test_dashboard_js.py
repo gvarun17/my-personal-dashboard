@@ -89,6 +89,7 @@ class DashboardJavaScriptTests(TempDataCase):
         self.reset_data()
         scenarios.append({"name": "empty account", "html": self.build_html("empty"), "width": 1100,
                           "protocol": "https:", "status": "B", "empty": True, "expectButton": "Refresh failed",
+                          "storage": "blocked",                       # private browsing: nothing remembered
                           "expect": [["todayActs", "No activities yet today"]]})
 
         # 4. Rest day: no activity today, HRV baseline set, weekly goal not reached; server unreachable
@@ -137,8 +138,9 @@ class DashboardJavaScriptTests(TempDataCase):
         # 6. Sparse, odd data: missing fields everywhere, single readings, tiny screen
         self.reset_data()
         self.write_sparse()
-        scenarios.append({"name": "sparse data, small screen", "html": self.build_html("sparse"), "width": 320,
-                          "height": 120, "protocol": "file:"})
+        scenarios.append({"name": "sparse data, small screen, opens on Health & strength",
+                          "html": self.build_html("sparse"), "width": 320, "height": 120, "protocol": "file:",
+                          "storage": {"view": "health"}, "expect": [["xTable", "Test strength_training 1"]]})
 
         manifest = self.root / "scenarios.json"
         manifest.write_text(json.dumps(scenarios), encoding="utf-8")

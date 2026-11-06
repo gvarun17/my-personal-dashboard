@@ -218,15 +218,18 @@ def activity_detail(aid):
     return out
 
 
-def pull_today(today, acts):
-    """Today's heart rate and Body Battery through the day, plus full detail
-    for each of today's activities."""
-    day = d2s(today)
+KEEP_DAYS = 7        # graphs through the day are kept for today and the 6 days before
+
+
+def fetch_day(day, acts, label):
+    """Heart rate and Body Battery through one day, plus full detail for each
+    of that day's activities. ok is False when Garmin couldn't be asked."""
     todays = sorted((a for a in acts.values() if (a.get("startTimeLocal") or "")[:10] == day),
                     key=lambda a: a["startTimeLocal"])
     steps = 2 + len(todays)
     out = {"date": day, "hr": [], "bb": [], "acts": {}}
-    bar("Today", 0, steps)
+    ok = True
+    bar(label, 0, steps)
     try:
         hr = get(f"/wellness-service/wellness/dailyHeartRate?date={day}") or {}
         lt, gt = hr.get("startTimestampLocal"), hr.get("startTimestampGMT")
@@ -243,24 +246,48 @@ def pull_today(today, acts):
         out["rhr"] = hr.get("restingHeartRate")
         out["rhr7"] = hr.get("lastSevenDaysAvgRestingHeartRate")
         time.sleep(PAUSE)
-        bar("Today", 1, steps)
+        bar(label, 1, steps)
         bb = get(f"/wellness-service/wellness/bodyBattery/reports/daily?startDate={day}&endDate={day}") or []
         if bb:
             out["bb"] = [[m, v] for m, v in ((minute(t), v) for t, v in (bb[0].get("bodyBatteryValuesArray") or []) if v is not None) if m is not None]
             out["bbCharged"], out["bbDrained"] = bb[0].get("charged"), bb[0].get("drained")
         time.sleep(PAUSE)
     except HTTPStatus:
-        pass
-    bar("Today", 2, steps)
+        ok = False
+    bar(label, 2, steps)
     for n, a in enumerate(todays, 1):
         try:
             out["acts"][str(a["activityId"])] = activity_detail(a["activityId"])
         except HTTPStatus as e:
+            ok = False
             print(f"\n  ! could not get details for {a.get('activityName')} ({e})")
-        bar("Today", 2 + n, steps)
-    bar("Today", 1, 1, f"{len(todays)} activit{'y' if len(todays) == 1 else 'ies'} today")
+        bar(label, 2 + n, steps)
+    bar(label, 1, 1, f"{len(todays)} activit{'y' if len(todays) == 1 else 'ies'}" + (" today" if label == "Today" else ""))
     print()
+    return out, ok
+
+
+def pull_today(today, acts):
+    out, _ = fetch_day(d2s(today), acts, "Today")
     save("today.json", out)
+
+
+def pull_recent(today, acts):
+    """The days before today, for the date switcher: each fetched once, after
+    the day is over, and saved in data/days/. Older ones are removed."""
+    folder = DATA / "days"
+    folder.mkdir(exist_ok=True)
+    keep = {d2s(today - timedelta(days=back)) for back in range(1, KEEP_DAYS)}
+    for old in folder.glob("*.json"):
+        if old.stem not in keep:
+            old.unlink()
+    for day in sorted(keep, reverse=True):
+        target = folder / f"{day}.json"
+        if target.exists():
+            continue
+        out, ok = fetch_day(day, acts, day)
+        if ok:                                  # try again next time if Garmin didn't answer
+            target.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
 
 
 def main():
@@ -300,6 +327,7 @@ def main():
         save("state.json", state)
 
     pull_today(today, acts)
+    pull_recent(today, acts)
 
     # Small one-off lookups
     for fname, path in (("fitness_age.json", f"/fitnessage-service/fitnessage/v2/{d2s(today)}"),

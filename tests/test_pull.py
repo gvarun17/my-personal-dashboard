@@ -1,4 +1,5 @@
 import io
+import json
 import runpy
 import unittest
 from datetime import date, datetime, timedelta
@@ -295,6 +296,41 @@ class TodayTests(TempDataCase):
         acts = {k: v for k, v in self.acts().items() if k == "9500"}
         _, out = self.run_today(FakeGarmin(), acts)
         self.assertIn("1 activity today", out)
+
+
+class RecentDaysTests(TempDataCase):
+    def run_recent(self, fake, acts):
+        with mock.patch.object(pull, "get", fake), quiet() as out:
+            pull.pull_recent(TODAY, acts)
+        return out.getvalue()
+
+    def test_last_six_days_are_fetched_once_and_old_ones_removed(self):
+        acts = {str(a["activityId"]): a for a in make_activities(n_days=10)}
+        folder = self.data / "days"
+        folder.mkdir()
+        (folder / f"{ds(TODAY - timedelta(days=30))}.json").write_text("{}")     # too old: removed
+        kept = folder / f"{ds(TODAY - timedelta(days=2))}.json"
+        kept.write_text('{"date": "kept"}')                                    # already there: not fetched again
+        fake = FakeGarmin()
+        out = self.run_recent(fake, acts)
+        names = sorted(p.stem for p in folder.glob("*.json"))
+        self.assertEqual(names, sorted(ds(TODAY - timedelta(days=b)) for b in range(1, pull.KEEP_DAYS)))
+        self.assertEqual(json.loads(kept.read_text())["date"], "kept")
+        self.assertFalse(any(f"date={ds(TODAY - timedelta(days=2))}" in c for c in fake.calls))
+        yday = json.loads((folder / f"{ds(TODAY - timedelta(days=1))}.json").read_text())
+        self.assertEqual(yday["date"], ds(TODAY - timedelta(days=1)))
+        self.assertTrue(yday["hr"])
+        self.assertNotIn("today", out.split("\n")[-2])                          # wording is for today only
+
+    def test_day_is_tried_again_when_garmin_does_not_answer(self):
+        fake = FakeGarmin(fail={"/wellness-service": garmin_api.HTTPStatus(503)})
+        self.run_recent(fake, {})
+        self.assertEqual(list((self.data / "days").glob("*.json")), [])
+        acts = {"1": make_activity(1, datetime.combine(TODAY - timedelta(days=1), datetime.min.time()), "running")}
+        fake = FakeGarmin(fail={"/activity-service/activity/1/details": garmin_api.HTTPStatus(403)})
+        self.run_recent(fake, acts)
+        self.assertFalse((self.data / "days" / f"{ds(TODAY - timedelta(days=1))}.json").exists())
+        self.assertTrue((self.data / "days" / f"{ds(TODAY - timedelta(days=2))}.json").exists())
 
 
 class MainTests(TempDataCase):

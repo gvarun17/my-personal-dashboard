@@ -83,7 +83,7 @@ const STATUS = {
   B: () => ({ running: false, lastOk: 'a', lastError: 'Garmin refused the key (HTTP 401)' }),
 };
 
-function makePage({ width, height = 800, protocol, fetchStatus }) {
+function makePage({ width, height = 800, protocol, fetchStatus, storage }) {
   if (STATUS[fetchStatus]) fetchStatus = STATUS[fetchStatus];
   const page = { width, elements: [], byId: {}, windowListeners: {}, docListeners: {}, reloaded: 0,
     fetches: [], closestHit: true };
@@ -92,7 +92,8 @@ function makePage({ width, height = 800, protocol, fetchStatus }) {
       if (!page.byId[id]) {
         const el = new FakeElement(page, id);
         if (id === 'wkMetric') el.innerHTML = '<button data-m="km"><button data-m="min"><button data-m="n">';
-        if (id === 'range') el.innerHTML = '<button data-r="1"><button data-r="3"><button data-r="6"><button data-r="12">';
+        if (id === 'range' || id === 'hrange') el.innerHTML = '<button data-r="1"><button data-r="3"><button data-r="6"><button data-r="12">';
+        if (id === 'view') el.innerHTML = '<button data-v="run"><button data-v="health">';
         page.byId[id] = el;
       }
       return page.byId[id];
@@ -100,8 +101,14 @@ function makePage({ width, height = 800, protocol, fetchStatus }) {
     addEventListener(type, fn) { (page.docListeners[type] ||= []).push(fn); },
   };
   let statusCalls = 0;
+  // Browser storage: works, starts with a saved view, or is blocked (private mode)
+  const store = { ...(storage && storage !== 'blocked' ? storage : {}) };
+  const localStorage = storage === 'blocked'
+    ? { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } }
+    : { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
+  page.store = store;
   const g = {
-    document,
+    document, localStorage,
     innerWidth: width, innerHeight: height,
     location: { protocol, reload() { page.reloaded++; } },
     addEventListener(type, fn) { (page.windowListeners[type] ||= []).push(fn); },
@@ -173,13 +180,26 @@ function text(page, id) { return page.byId[id] ? page.byId[id].innerHTML : ''; }
 // ---------------------------------------------------------------- tests
 for (const sc of manifest) {
   test(`dashboard renders and responds: ${sc.name}`, async () => {
-    const page = loadDashboard(sc.html, { width: sc.width, height: sc.height, protocol: sc.protocol, fetchStatus: sc.status });
+    const page = loadDashboard(sc.html, { width: sc.width, height: sc.height, protocol: sc.protocol, fetchStatus: sc.status, storage: sc.storage });
     try {
-      // Every section rendered something
-      for (const id of ['ready', 'ladder', 'ladTip', 'heroNote', 'roadFacts', 'today', 'ring', 'tiles', 'wkChart', 'imChart', 'heat', 'rhrChart', 'hrvChart',
-        'sleepChart', 'loadChart', 'zbar', 'bigTable', 'foot', 'meta', ...(sc.empty ? [] : ['recs'])]) {
+      const RUN = ['ladder', 'ladTip', 'heroNote', 'roadFacts', 'ring', 'tiles', 'wkChart', 'imChart', 'heat', 'rhrChart',
+        'hrvChart', 'sleepChart', 'loadChart', 'zbar', 'bigTable', ...(sc.empty ? [] : ['recs'])];
+      const HEALTH = ['hTiles', 'xChart', 'xTable', 'hSteps', 'hRhr', 'hSleep', 'hStress', 'hBB', 'hCal'];
+      const startHealth = !!(sc.storage && sc.storage.view === 'health');
+      // Every section of the view on screen rendered something
+      for (const id of ['ready', 'today', 'todayActs', 'foot', 'meta', ...(startHealth ? HEALTH : RUN)]) {
         assert.ok(text(page, id).length > 0, `${id} is empty`);
       }
+      assert.strictEqual(page.byId.runView.hidden, startHealth);
+      assert.strictEqual(page.byId.healthView.hidden, !startHealth);
+
+      // Tap every activity open (a tap between rows is ignored)
+      const acts = page.byId.todayActs;
+      const click = (el, target) => { for (const fn of el.listeners.click || []) fn({ target }); };
+      click(acts, { closest: () => null });
+      const rows = acts.querySelectorAll('button');
+      for (const b of rows) click(acts, b);
+      if (rows.length) assert.match(text(page, 'todayActs'), /aria-expanded="true"/);
       for (const [id, want] of sc.expect || []) {
         assert.match(text(page, id), new RegExp(want), `${id} should contain ${want}`);
       }
@@ -193,7 +213,32 @@ for (const sc of manifest) {
       }
 
       // Hover/tap everything
-      const fired = exercise(page);
+      let fired = exercise(page);
+      if (rows.length) {                         // tap the first one again: it closes
+        click(acts, rows[0]);
+        assert.match(text(page, 'todayActs'), /data-i="0" aria-expanded="false"/);
+      }
+
+      // Step back through the days, past the ones with graphs, then forward and back to today
+      const today = page.byId.today;
+      const nav = (d) => click(today, today.querySelectorAll('button').find((b) => b.dataset.nav === d));
+      click(today, { closest: () => null });
+      nav('-1');                                 // already on today: nothing to do
+      nav('1');
+      assert.match(text(page, 'today'), /Yesterday/);
+      for (const b of page.byId.todayActs.querySelectorAll('button')) click(page.byId.todayActs, b);
+      fired += exercise(page);
+      for (let i = 0; i < 9; i++) nav('1');
+      assert.match(text(page, 'today'), /10 days ago/);
+      assert.match(text(page, 'today'), /kept for the last 7 days/);
+      for (let i = 0; i < 100; i++) nav('1');    // stops at the oldest day
+      assert.match(text(page, 'today'), /89 days ago/);
+      assert.match(text(page, 'today'), /aria-label="Previous day" disabled/);
+      nav('-1');
+      assert.match(text(page, 'today'), /88 days ago/);
+      nav('0');
+      assert.match(text(page, 'today'), /<div class="eyebrow">Today</);
+      assert.ok(!/NaN|undefined/.test(text(page, 'today')), 'past days show NaN/undefined');
       assert.ok(fired > 0);
       const tip = page.byId.tip;
       assert.ok(tip.innerHTML.length > 0 || sc.empty, 'tooltip never filled');
@@ -207,7 +252,7 @@ for (const sc of manifest) {
       assert.strictEqual(tip.style.opacity, 0);
 
       // Switch every measure and time range, then hover again
-      const segs = [['wkMetric', ['km', 'min', 'n']], ['range', ['1', '3', '6', '12']]];
+      const segs = [['wkMetric'], ['range'], ['view'], ['hrange']];   // view ends on Health & strength
       for (const [id] of segs) {
         const g = page.byId[id];
         for (const fn of g.listeners.click || []) {
@@ -217,6 +262,9 @@ for (const sc of manifest) {
       }
       exercise(page);
       assert.match(text(page, 'wkTitle') || page.byId.wkTitle.textContent, /by sport/);
+      for (const id of HEALTH) assert.ok(text(page, id).length > 0, `${id} is empty`);
+      assert.strictEqual(page.byId.healthView.hidden, false);
+      if (sc.storage !== 'blocked') assert.strictEqual(page.store.view, 'health', 'view is remembered');
 
       // Resize: same width is ignored, a new width re-renders
       for (const fn of page.windowListeners.resize || []) fn();

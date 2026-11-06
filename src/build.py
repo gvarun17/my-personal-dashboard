@@ -7,7 +7,7 @@ so it opens in any browser with no server and nothing loaded from the internet.
 """
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import coach
@@ -16,6 +16,8 @@ import settings
 ROOT = Path(__file__).resolve().parent.parent   # project folder (holds data/ and dashboard.html)
 DATA = Path(os.environ.get("GARMIN_DATA_DIR") or ROOT / "data")
 OUT = Path(os.environ.get("DASHBOARD_OUT") or ROOT / "dashboard.html")
+HISTORY_DAYS = 90   # days you can step back to in the Today section
+GRAPH_DAYS = 7      # of those, how many have graphs through the day (see pull.KEEP_DAYS)
 
 
 def load(name, default):
@@ -102,6 +104,7 @@ def build():
             "rhr": rhr, "im": mod + 2 * vig, "img": g(v, "intensityMinutes", "goal"),
             "str": stress if isinstance(stress, (int, float)) and stress > 0 else None,
             "bbx": g(v, "bodyBattery", "maxValue"), "bbn": g(v, "bodyBattery", "minValue"),
+            "cal": g(v, "calories", "burnedActive"),
         })
 
     sleep = []
@@ -128,7 +131,15 @@ def build():
             weight.append({"d": d, "kg": r(w / 1000, 1)})
 
     z = zones[0] if isinstance(zones, list) and zones else {}
-    td = build_today(load("today.json", {}), daily_raw, sleep_raw, hrv_raw, acts_raw)
+    today_raw = load("today.json", {})
+    d0 = date.fromisoformat(today_raw.get("date") or date.today().isoformat())
+    tdays = []
+    for back in range(HISTORY_DAYS):
+        day = (d0 - timedelta(days=back)).isoformat()
+        t = today_raw if back == 0 else load(f"days/{day}.json", {})
+        td = build_today({**t, "date": day}, daily_raw, sleep_raw, hrv_raw, acts_raw)
+        td["graphs"] = back < GRAPH_DAYS
+        tdays.append(td)
     payload = {
         "today": date.today().isoformat(),
         "built": f"{datetime.now().day} {datetime.now():%b %Y, %H:%M}",
@@ -137,8 +148,8 @@ def build():
         "zones": [z.get(f"zone{i}Floor") for i in range(1, 6)] + [z.get("maxHeartRateUsed")],
         "start": state.get("start"),
         "name": settings.public().get("name") or "",
-        "td": td,
-        "coach": coach.build_coach(td["date"], daily_raw, sleep_raw, hrv_raw, days, acts, settings.public()),
+        "tdays": tdays,
+        "coach": coach.build_coach(tdays[0]["date"], daily_raw, sleep_raw, hrv_raw, days, acts, settings.public()),
     }
     blob = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
     OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -184,7 +195,7 @@ def build_today(t, daily_raw, sleep_raw, hrv_raw, acts_raw):
     todays = sorted((a for a in acts_raw.values() if (a.get("startTimeLocal") or "")[:10] == day),
                     key=lambda a: a["startTimeLocal"])
     for a in todays:
-        det = (t.get("acts") or {}).get(str(a.get("activityId")), {})
+        det = (t.get("acts") or {}).get(str(a.get("activityId"))) or load(f"details/{a.get('activityId')}.json", {})
         sm = det.get("summary") or {}
         series = {k: vals for k, vals in (det.get("series") or {}).items() if k != "cad1"}
         out["acts"].append({
@@ -339,7 +350,20 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
 .rbtn{all:unset;cursor:pointer;font-size:13px;font-weight:600;padding:7px 14px;border-radius:10px;background:var(--raise);border:1px solid var(--border);color:var(--ink)}
 .rbtn:hover{background:#2c2c2a}.rbtn:focus-visible{outline:2px solid var(--accent)}
 .rbtn[disabled]{opacity:.6;cursor:default}
+/* view switch */
+.viewbar{display:flex;justify-content:flex-start;margin:-6px 0 14px}
 /* today */
+.dayside{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.daynav{display:flex;gap:6px}
+.daynav .rbtn{padding:6px 12px}
+.actlist h2{font-size:16px}
+.actrow{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:10px;width:100%;padding:12px 12px;margin-top:8px;border-radius:12px;background:var(--raise)}
+.actrow:hover{background:#2c2c2a}.actrow:focus-visible{outline:2px solid var(--accent)}
+.actrow .an{font-weight:600;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.actrow .am{color:var(--muted);font-size:12.5px;white-space:nowrap}
+.actrow .chev{color:var(--ink2);font-size:12px;width:12px;text-align:center}
+.actrow .sw{margin-right:0;flex:none}
+.actlist .act{margin:4px 0 6px;padding:2px 4px 8px}
 .today{margin-bottom:14px}
 .todayhead{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 16px;margin-bottom:12px}
 .todayhead h2{font-size:22px;font-weight:650}
@@ -365,7 +389,7 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
 .acharts .ac h3 span{color:var(--muted);font-weight:500;margin-left:6px}
 @media (max-width:1000px){.tgrid{grid-template-columns:repeat(4,1fr)}.astats{grid-template-columns:repeat(4,1fr)}}
 @media (max-width:760px){.tcharts{grid-template-columns:1fr}.abars{grid-template-columns:1fr}}
-@media (max-width:520px){.tgrid{grid-template-columns:repeat(2,1fr);gap:8px}.astats{grid-template-columns:repeat(2,1fr)}.tm .val{font-size:20px}}
+@media (max-width:520px){.dayside{align-items:flex-start;width:100%}.actrow .am{display:none}.tgrid{grid-template-columns:repeat(2,1fr);gap:8px}.astats{grid-template-columns:repeat(2,1fr)}.tm .val{font-size:20px}}
 
 /* tooltip */
 #tip{position:fixed;z-index:10;pointer-events:none;background:#262624;border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:12px;line-height:1.5;color:var(--ink);box-shadow:0 8px 24px rgba(0,0,0,.45);max-width:250px;opacity:0;transition:opacity .08s}
@@ -399,11 +423,15 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
     </div>
     <div class="hdr-r"><div class="meta" id="meta"></div><a id="settingsLink" class="rbtn" href="setup" hidden>Settings</a><button id="refreshBtn" class="rbtn" hidden>Refresh</button></div>
   </header>
+  <div class="viewbar"><div class="seg" id="view" role="group" aria-label="Dashboard view">
+    <button aria-pressed="true" data-v="run">Running</button><button aria-pressed="false" data-v="health">Health &amp; strength</button>
+  </div></div>
 
   <section class="card ready" id="ready" aria-live="polite"></section>
   <section class="card today" id="today"></section>
   <div id="todayActs"></div>
 
+  <div id="runView">
   <div class="sechead" style="margin-top:26px"><h2>Your training</h2></div>
   <section class="card hero">
     <div>
@@ -481,6 +509,31 @@ a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
     <p class="q">Your five longest sessions.</p>
     <div class="tablewrap" id="bigTable" style="margin-top:0"></div>
   </section>
+  </div>
+
+  <div id="healthView" hidden>
+  <div class="sechead" style="margin-top:26px"><h2>Health and strength</h2></div>
+  <section class="tiles" id="hTiles" style="margin-top:0"></section>
+  <div class="grid2 sec">
+    <div class="card"><h2>Workouts other than running</h2><p class="q">Where does my time go outside running? Hours per week.</p>
+      <div class="chartbox" id="xChart"></div><div class="legend" id="xLegend"></div></div>
+    <div class="card"><h2>Recent workouts</h2><p class="q">Your latest sessions that weren't runs.</p>
+      <div class="tablewrap" id="xTable" style="margin-top:0"></div></div>
+  </div>
+  <div class="sechead"><h2>Every day</h2>
+    <div class="seg" id="hrange" role="group" aria-label="Time range">
+      <button aria-pressed="false" data-r="1">1M</button><button aria-pressed="true" data-r="3">3M</button><button aria-pressed="false" data-r="6">6M</button><button aria-pressed="false" data-r="12">12M</button>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h2>Steps</h2><p class="q">How much am I moving each day?</p><div class="chartbox" id="hSteps"></div><div class="legend" id="hStepsLegend"></div></div>
+    <div class="card"><h2>Resting heart rate</h2><p class="q">Lower over time usually means a fitter heart.</p><div class="chartbox" id="hRhr"></div><div class="legend" id="hRhrLegend"></div></div>
+    <div class="card"><h2>Sleep</h2><p class="q">Am I sleeping enough to recover?</p><div class="chartbox" id="hSleep"></div><div class="legend" id="hSleepLegend"></div></div>
+    <div class="card"><h2>Stress</h2><p class="q">Garmin's all-day stress score: under 25 is rest, over 75 is high.</p><div class="chartbox" id="hStress"></div><div class="legend" id="hStressLegend"></div></div>
+    <div class="card"><h2>Body Battery</h2><p class="q">How well do I recharge? Each day's highest and lowest.</p><div class="chartbox" id="hBB"></div><div class="legend" id="hBBLegend"></div></div>
+    <div class="card"><h2>Active calories</h2><p class="q">Calories burned through movement, on top of your resting burn.</p><div class="chartbox" id="hCal"></div></div>
+  </div>
+  </div>
 
   <footer id="foot"></footer>
 </div>
@@ -578,6 +631,7 @@ function lineChart(el, o){
   if (!all.length){ el.innerHTML = `<div class="empty">${o.empty || 'No data in this range yet.'}</div>`; return; }
   let lo = Math.min(...all.map(p=>p[1])), hi = Math.max(...all.map(p=>p[1]));
   const sp = (hi-lo) || Math.abs(hi)*0.1 || 1; lo -= sp*0.1; hi += sp*0.1;
+  if (o.min != null) lo = Math.max(lo, o.min);         // scores can't go below 0
   const tk = nice(lo, hi, 4); lo = tk[0]; hi = tk[tk.length-1];
   const X = t => m.l + (t-o.x0)/(o.x1-o.x0)*(W-m.l-m.r);
   const Y = v => m.t + (1-(v-lo)/(hi-lo))*(H-m.t-m.b);
@@ -741,43 +795,53 @@ function delta(v, ref, upGood, fmt, word){
   const cls = upGood == null ? '' : ((d>0) === upGood ? 'up-good' : 'up-bad');
   return `<span class="${cls}">${d>0?'▲':'▼'} ${fmt(Math.abs(d))}</span> vs ${word}`;
 }
-function renderTiles(){
+const last7 = [TODAY-7*DAY, TODAY];               // 7 complete days before today
+const prev4 = [W0-28*DAY, W0];
+const slIn = (a,b) => D.sleep.filter(s=>s.t>=a&&s.t<b);
+// Tiles both views share
+const TILE = {
+  steps(){
+    const st7 = avg(daysIn(...last7).map(d=>d.st)), sg = (D.days.length && D.days[D.days.length-1].sg) || null;
+    return {lab:'Steps, 7-day avg', val:n0(st7), u:'', dl: sg ? delta(st7, sg, true, n0, 'goal') : '', sp:weekly((a,b)=>avg(daysIn(a,b).map(d=>d.st))), f:v=>n0(v)+' steps/day'};
+  },
+  rhr(){
+    const r7 = avg(daysIn(TODAY-6*DAY, TODAY+DAY).map(d=>d.rhr)), r90 = avg(daysIn(TODAY-97*DAY, TODAY-6*DAY).map(d=>d.rhr));
+    return {lab:'Resting HR, 7-day', val:n0(r7), u:'bpm', dl:delta(r7!=null?Math.round(r7):null, r90!=null?Math.round(r90):null, false, n0, '90-day avg'), sp:weekly((a,b)=>avg(daysIn(a,b).map(d=>d.rhr))), f:v=>n0(v)+' bpm'};
+  },
+  sleep(){
+    const s7 = slIn(TODAY-6*DAY, TODAY+DAY), sh = avg(s7.map(s=>s.h)), sc = avg(s7.map(s=>s.sc));
+    return {lab:'Sleep, last 7 nights', val: sh==null ? '–' : hm(sh*60).replace(' ',''), u:'', dl:`${s7.length} of 7 nights tracked${sc!=null?` · score ${n0(sc)}`:''}`, sp:weekly((a,b)=>avg(slIn(a,b).map(s=>s.h))), f:v=>hm(v*60)+' per night'};
+  },
+  // A daily average over the last 7 days, compared with the 4 weeks before this one
+  daily(k, lab, u, upGood, f){
+    const v7 = avg(daysIn(...last7).map(d=>d[k])), v4 = avg(daysIn(...prev4).map(d=>d[k]));
+    return {lab, val:n0(v7), u, dl:delta(v7!=null?Math.round(v7):null, v4!=null?Math.round(v4):null, upGood, n0, '4-wk avg'), sp:weekly((a,b)=>avg(daysIn(a,b).map(d=>d[k]))), f};
+  },
+};
+function tilesInto(id, T, pre){
   const wkLabels = WEEKS.map(w => 'Week of ' + fd(w));
-  const last7 = [TODAY-7*DAY, TODAY];               // 7 complete days before today
-  const prev4 = [W0-28*DAY, W0];
+  document.getElementById(id).innerHTML = T.map((t,i) => `<div class="card tile"><div class="lab">${t.lab}</div><div class="val">${t.val}${t.u?`<small>${t.u}</small>`:''}</div><div class="dl">${t.dl}</div><div class="spark" id="${pre}${i}"></div></div>`).join('');
+  T.forEach((t,i) => spark(document.getElementById(pre+i), t.sp.map(v => v || v===0 ? v : null), wkLabels, t.f, '#3987e5'));
+}
+function renderTiles(){
   const T = [];
-
   const kmW = weekly((a,b)=>sum(D.acts.filter(x=>x.t>=a&&x.t<b).map(x=>x.km)));
   const dIdx = Math.round((TODAY-W0)/DAY);   // same point in earlier weeks (Mon..today's weekday)
   const km4 = sum([1,2,3,4].map(k => sum(D.acts.filter(x=>x.t>=W0-k*7*DAY && x.t<=W0-k*7*DAY+dIdx*DAY).map(x=>x.km))))/4;
   T.push({lab:'Distance this week', val:n1(kmW[NW-1]), u:'km', dl:delta(kmW[NW-1], km4, true, n1, 'usual by now'), sp:kmW, f:v=>n1(v)+' km'});
-
-  const stepsW = weekly((a,b)=>avg(daysIn(a,b).map(d=>d.st)));
-  const st7 = avg(daysIn(...last7).map(d=>d.st)), sg = (D.days.length && D.days[D.days.length-1].sg) || null;
-  T.push({lab:'Steps, 7-day avg', val:n0(st7), u:'', dl: sg ? delta(st7, sg, true, n0, 'goal') : '', sp:stepsW, f:v=>n0(v)+' steps/day'});
-
-  const rhrW = weekly((a,b)=>avg(daysIn(a,b).map(d=>d.rhr)));
-  const r7 = avg(daysIn(TODAY-6*DAY, TODAY+DAY).map(d=>d.rhr)), r90 = avg(daysIn(TODAY-97*DAY, TODAY-6*DAY).map(d=>d.rhr));
-  T.push({lab:'Resting HR, 7-day', val:n0(r7), u:'bpm', dl:delta(r7!=null?Math.round(r7):null, r90!=null?Math.round(r90):null, false, n0, '90-day avg'), sp:rhrW, f:v=>n0(v)+' bpm'});
+  T.push(TILE.steps(), TILE.rhr());
 
   const hrvIn = (a,b) => D.hrv.filter(h=>h.t>=a&&h.t<b).map(h=>h.v);
   const hrvW = weekly((a,b)=>avg(hrvIn(a,b)));
   const h7 = avg(hrvIn(TODAY-6*DAY, TODAY+DAY)), hLast = D.hrv[D.hrv.length-1];
   const building = hLast && (!hLast.st || hLast.st === 'NONE');
   T.push({lab:'HRV, 7-night avg', val:n0(h7), u:'ms', dl: h7==null ? 'No readings this week' : (building ? 'Garmin is still building your baseline' : esc((hLast.st||'').toLowerCase())), sp:hrvW, f:v=>n0(v)+' ms'});
-
-  const slIn = (a,b) => D.sleep.filter(s=>s.t>=a&&s.t<b);
-  const slW = weekly((a,b)=>avg(slIn(a,b).map(s=>s.h)));
-  const s7 = slIn(TODAY-6*DAY, TODAY+DAY), sh = avg(s7.map(s=>s.h)), sc = avg(s7.map(s=>s.sc));
-  T.push({lab:'Sleep, last 7 nights', val: sh==null ? '–' : hm(sh*60).replace(' ',''), u:'', dl:`${s7.length} of 7 nights tracked${sc!=null?` · score ${n0(sc)}`:''}`, sp:slW, f:v=>hm(v*60)+' per night'});
+  T.push(TILE.sleep());
 
   const ldW = weekly((a,b)=>sum(D.acts.filter(x=>x.t>=a&&x.t<b).map(x=>x.ld)));
   const l7 = sum(D.acts.filter(x=>x.t>TODAY-7*DAY).map(x=>x.ld)), l4 = sum(D.acts.filter(x=>x.t>=prev4[0]&&x.t<prev4[1]).map(x=>x.ld))/4;
   T.push({lab:'Training load, 7-day', val:n0(l7), u:'', dl:delta(l7, l4, null, n0, '4-wk avg'), sp:ldW, f:v=>'load '+n0(v)});
-
-  const el = document.getElementById('tiles');
-  el.innerHTML = T.map((t,i) => `<div class="card tile"><div class="lab">${t.lab}</div><div class="val">${t.val}${t.u?`<small>${t.u}</small>`:''}</div><div class="dl">${t.dl}</div><div class="spark" id="sp${i}"></div></div>`).join('');
-  T.forEach((t,i) => spark(document.getElementById('sp'+i), t.sp.map(v => v || v===0 ? v : null), wkLabels, t.f, '#3987e5'));
+  tilesInto('tiles', T, 'sp');
 }
 
 // ---------- this week vs recent weeks ----------
@@ -857,17 +921,38 @@ function renderHeat(){
 
 // ---------- trends ----------
 let rangeM = 3;
-function renderTrends(){
-  const x1 = TODAY, x0 = Date.UTC(new Date(TODAY).getUTCFullYear(), new Date(TODAY).getUTCMonth()-rangeM, new Date(TODAY).getUTCDate());
-
-  // Resting HR
-  const rhr = D.days.filter(d=>d.rhr).map(d=>[d.t, d.rhr]);
-  const roll = rhr.map(([t]) => [t, avg(rhr.filter(q=>q[0]>t-7*DAY && q[0]<=t).map(q=>q[1]))]);
+const rangeStart = m => Date.UTC(new Date(TODAY).getUTCFullYear(), new Date(TODAY).getUTCMonth()-m, new Date(TODAY).getUTCDate());
+// Every day in [x0, x1], with week or month labels that don't collide
+function dayAxis(el, x0, x1){
+  const nd = Math.round((x1-x0)/DAY)+1, dts = [...Array(nd)].map((_,i)=>x0+i*DAY), slot = (el.clientWidth-50)/nd;
+  const xt = []; let lastPx = -99;
+  dts.forEach((t,i) => { const d = new Date(t); const isTick = (nd<=45 ? d.getUTCDay()===1 : d.getUTCDate()===1); if (isTick && (i*slot-lastPx)>=44){ xt.push([i, nd<=45?fd(t):fd(t,{month:'short'})]); lastPx=i*slot; } });
+  return {nd, dts, xt};
+}
+// A daily reading with its 7-day average (resting HR, stress)
+function dailyWithAvg(id, legId, k, name, unit, x0, x1, empty, min){
+  const pts = D.days.filter(d=>d[k]).map(d=>[d.t, d[k]]);
+  const roll = pts.map(([t]) => [t, avg(pts.filter(q=>q[0]>t-7*DAY && q[0]<=t).map(q=>q[1]))]);
   const rollMap = new Map(roll);
-  lineChart(document.getElementById('rhrChart'), {x0, x1, h:190, gap:4,
-    series:[{c:'#5a5955', w:1.5, pts:rhr}, {c:'#3987e5', w:2.5, pts:roll}], fmt:v=>v,
-    tip: t => { const d = dayMap[t]; return `<div class="t">${fdy(t)}</div>${row('Resting HR', (d&&d.rhr)+' bpm','#5a5955')}${row('7-day avg', n1(rollMap.get(t))+' bpm','#3987e5')}`; }});
-  document.getElementById('rhrLegend').innerHTML = `<span><i class="ln" style="background:#5a5955"></i>Daily</span><span><i class="ln" style="background:#3987e5"></i>7-day average</span>`;
+  lineChart(document.getElementById(id), {x0, x1, h:190, gap:4, empty, min,
+    series:[{c:'#5a5955', w:1.5, pts}, {c:'#3987e5', w:2.5, pts:roll}], fmt:v=>v,
+    tip: t => { const d = dayMap[t]; return `<div class="t">${fdy(t)}</div>${row(name, (d&&d[k])+unit,'#5a5955')}${row('7-day avg', n1(rollMap.get(t))+unit,'#3987e5')}`; }});
+  document.getElementById(legId).innerHTML = `<span><i class="ln" style="background:#5a5955"></i>Daily</span><span><i class="ln" style="background:#3987e5"></i>7-day average</span>`;
+}
+// Sleep, stacked by stage
+function sleepChart(id, legId, x0, x1){
+  const sEl = document.getElementById(id), {nd, dts, xt} = dayAxis(sEl, x0, x1);
+  const smap = Object.fromEntries(D.sleep.map(s=>[s.t,s]));
+  const ST = [{k:'dp',n:'Deep',c:'#3987e5'},{k:'rm',n:'REM',c:'#d95926'},{k:'lt',n:'Light',c:'#199e70'},{k:'aw',n:'Awake',c:'#c98500'}];
+  colChart(sEl, {n:nd, h:190, fmt:v=>v+'h', xt, empty:'No nights tracked in this range.',
+    stacks: ST.map(st => ({c:st.c, v:dts.map(t=>smap[t]?smap[t][st.k]:0)})),
+    tip: i => { const s = smap[dts[i]]; return `<div class="t">Night of ${fdy(dts[i]-DAY)}</div>` + (s ? row('Asleep', hm(s.h*60)) + ST.map(st=>row(st.n, hm(s[st.k]*60), st.c)).join('') + (s.sc?row('Sleep score', s.sc):'') : 'Not tracked'); }});
+  const nN = D.sleep.filter(s=>s.t>=x0).length;
+  document.getElementById(legId).innerHTML = ST.map(st=>`<span><i style="background:${st.c}"></i>${st.n}</span>`).join('') + `<span style="color:var(--muted)">${nN} of ${nd} nights tracked</span>`;
+}
+function renderTrends(){
+  const x1 = TODAY, x0 = rangeStart(rangeM);
+  dailyWithAvg('rhrChart', 'rhrLegend', 'rhr', 'Resting HR', ' bpm', x0, x1);
 
   // HRV
   const hv = D.hrv.map(h=>[h.t, h.v]), hmap = Object.fromEntries(D.hrv.map(h=>[h.t,h]));
@@ -877,18 +962,7 @@ function renderTrends(){
   const nIn = D.hrv.filter(h=>h.t>=x0).length;
   document.getElementById('hrvNote').innerHTML = `<span>${nIn} night${nIn===1?'':'s'} with a reading in this range${D.hrv.length && (!D.hrv[D.hrv.length-1].st || D.hrv[D.hrv.length-1].st==='NONE') ? '. Garmin needs about 3 weeks of nightly wear to set your baseline.' : ''}</span>`;
 
-  // Sleep, stacked by stage
-  const nd = Math.round((x1-x0)/DAY)+1, dts = [...Array(nd)].map((_,i)=>x0+i*DAY);
-  const smap = Object.fromEntries(D.sleep.map(s=>[s.t,s]));
-  const ST = [{k:'dp',n:'Deep',c:'#3987e5'},{k:'rm',n:'REM',c:'#d95926'},{k:'lt',n:'Light',c:'#199e70'},{k:'aw',n:'Awake',c:'#c98500'}];
-  const sEl = document.getElementById('sleepChart'), slot = (sEl.clientWidth-50)/nd;
-  const mt = []; let lastPx = -99;
-  dts.forEach((t,i) => { const d = new Date(t); const isTick = (nd<=45 ? d.getUTCDay()===1 : d.getUTCDate()===1); if (isTick && (i*slot-lastPx)>=44){ mt.push([i, nd<=45?fd(t):fd(t,{month:'short'})]); lastPx=i*slot; } });
-  colChart(sEl, {n:nd, h:190, fmt:v=>v+'h', xt:mt, empty:'No nights tracked in this range.',
-    stacks: ST.map(st => ({c:st.c, v:dts.map(t=>smap[t]?smap[t][st.k]:0)})),
-    tip: i => { const s = smap[dts[i]]; return `<div class="t">Night of ${fdy(dts[i]-DAY)}</div>` + (s ? row('Asleep', hm(s.h*60)) + ST.map(st=>row(st.n, hm(s[st.k]*60), st.c)).join('') + (s.sc?row('Sleep score', s.sc):'') : 'Not tracked'); }});
-  const nN = D.sleep.filter(s=>s.t>=x0).length;
-  document.getElementById('sleepLegend').innerHTML = ST.map(st=>`<span><i style="background:${st.c}"></i>${st.n}</span>`).join('') + `<span style="color:var(--muted)">${nN} of ${nd} nights tracked</span>`;
+  sleepChart('sleepChart', 'sleepLegend', x0, x1);
 
   // Training load per week, by sport
   const ws = []; for (let w = MON(x0); w <= W0; w += 7*DAY) ws.push(w);
@@ -899,6 +973,49 @@ function renderTrends(){
     xt: idxTicks(ws.map(w=>w===W0?'This wk':fd(w)), (lEl.clientWidth-50)/ws.length, 52),
     tip: i => `<div class="t">${ws[i]===W0?'This week':'Week of '+fd(ws[i])}</div>` + lsp.filter(s=>ag[i][s.k].ld).map(s=>row(s.name, n0(ag[i][s.k].ld), s.c)).join('') + row('Total', n0(sum(lsp.map(s=>ag[i][s.k].ld))))});
   document.getElementById('loadLegend').innerHTML = lsp.map(s=>`<span><i style="background:${s.c}"></i>${s.name}</span>`).join('');
+}
+
+// ---------- health and strength view ----------
+let hRangeM = 3;
+const XS = SPORTS.filter(s => s.k !== 'run');
+function renderHealth(){
+  tilesInto('hTiles', [
+    TILE.steps(), TILE.rhr(), TILE.sleep(),
+    TILE.daily('str', 'Stress, 7-day avg', '', false, v=>'stress '+n0(v)),
+    TILE.daily('bbx', 'Body Battery peak, 7-day', '', true, v=>'peak '+n0(v)),
+    TILE.daily('cal', 'Active calories, 7-day', 'kcal', true, v=>n0(v)+' kcal/day'),
+  ], 'hsp');
+
+  // Workouts other than running, hours per week by sport
+  const aggs = WEEKS.map(weekAgg), xs = XS.filter(s => aggs.some(a=>a[s.k].n)), xEl = document.getElementById('xChart');
+  colChart(xEl, {n: NW, hl: NW-1, h: 200, fmt: v=>v+'h', empty: 'No workouts other than runs in the last 12 weeks.',
+    stacks: xs.map(s => ({c:s.c, v:aggs.map(a=>a[s.k].min/60)})), xt: idxTicks(WEEKS.map(wkLabel), (xEl.clientWidth-50)/NW, 52),
+    tip: i => `<div class="t">${i===NW-1?'This week':'Week of '+fd(WEEKS[i])}</div>` + xs.filter(s=>aggs[i][s.k].n).map(s => row(`${s.name} ×${aggs[i][s.k].n}`, hm(aggs[i][s.k].min), s.c)).join('')});
+  document.getElementById('xLegend').innerHTML = xs.map(s => `<span><i style="background:${s.c}"></i>${s.name}</span>`).join('');
+  const recent = D.acts.filter(a => a.s !== 'run').slice(-8).reverse();
+  document.getElementById('xTable').innerHTML = recent.length
+    ? `<table><thead><tr><th>Date</th><th>Workout</th><th class="n">Time</th><th class="n">Avg HR</th><th class="n">Calories</th></tr></thead><tbody>${recent.map(a => `<tr><td>${fd(a.t)}</td><td><span class="sw" style="background:${SP[a.s].c}"></span>${esc(a.n||a.ty)}</td><td class="n">${hm(a.min)}</td><td class="n">${a.hr ? a.hr+' bpm' : '–'}</td><td class="n">${n0(a.cal)}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="empty">No workouts other than runs yet.</div>';
+
+  // Every day
+  const x1 = TODAY, x0 = rangeStart(hRangeM);
+  const stEl = document.getElementById('hSteps'), ax = dayAxis(stEl, x0, x1), sg = (D.days.length && D.days[D.days.length-1].sg) || null;
+  colChart(stEl, {n:ax.nd, h:190, xt:ax.xt, fmt:v=>v>=1000?(v/1000)+'k':v, empty:'No steps in this range.', ref: sg ? {v:sg, label:'goal'} : null,
+    stacks:[{c:'#3987e5', v:ax.dts.map(t=>dayMap[t] ? dayMap[t].st||0 : 0)}],
+    tip: i => `<div class="t">${fdy(ax.dts[i])}</div>${row('Steps', n0(dayMap[ax.dts[i]] && dayMap[ax.dts[i]].st))}${sg?row('Goal', n0(sg)):''}`});
+  document.getElementById('hStepsLegend').innerHTML = sg ? `<span><i class="ln" style="background:#c3c2b7"></i>Your daily goal, ${n0(sg)}</span>` : '';
+  dailyWithAvg('hRhr', 'hRhrLegend', 'rhr', 'Resting HR', ' bpm', x0, x1);
+  sleepChart('hSleep', 'hSleepLegend', x0, x1);
+  dailyWithAvg('hStress', 'hStressLegend', 'str', 'Stress', '', x0, x1, 'No stress readings in this range.', 0);
+  const hi = D.days.filter(d=>d.bbx!=null).map(d=>[d.t, d.bbx]), lo = D.days.filter(d=>d.bbn!=null).map(d=>[d.t, d.bbn]);
+  lineChart(document.getElementById('hBB'), {x0, x1, h:190, gap:4, min:0, empty:'No Body Battery readings in this range.',
+    series:[{c:'#3987e5', pts:hi}, {c:'#5a5955', pts:lo}], fmt:v=>v,
+    tip: t => { const d = dayMap[t]; return `<div class="t">${fdy(t)}</div>${row('Highest', d.bbx ?? '–', '#3987e5')}${row('Lowest', d.bbn ?? '–', '#5a5955')}`; }});
+  document.getElementById('hBBLegend').innerHTML = `<span><i class="ln" style="background:#3987e5"></i>Highest</span><span><i class="ln" style="background:#5a5955"></i>Lowest</span>`;
+  const cEl = document.getElementById('hCal'), cx = dayAxis(cEl, x0, x1);
+  colChart(cEl, {n:cx.nd, h:190, xt:cx.xt, empty:'No calorie data in this range.',
+    stacks:[{c:'#d95926', v:cx.dts.map(t=>dayMap[t] ? dayMap[t].cal||0 : 0)}],
+    tip: i => `<div class="t">${fdy(cx.dts[i])}</div>${row('Active calories', n0(dayMap[cx.dts[i]] && dayMap[cx.dts[i]].cal))}`});
 }
 
 // ---------- zones ----------
@@ -949,59 +1066,77 @@ const paceStr = minPerKm => minPerKm == null ? '–' : mmss(minPerKm*60);
 const tm = (lab, val, unit, sub, extra='') => `<div class="tm"><div class="lab">${lab}</div><div class="val">${val}${unit?`<small>${unit}</small>`:''}</div>${sub?`<div class="sub">${sub}</div>`:''}${extra}</div>`;
 const meter = (v, goal) => goal ? `<div class="mbar"><i style="width:${Math.min(100, v/goal*100)}%;${v>=goal?'background:#0ca30c':''}"></i></div>` : '';
 
+let dayIdx = 0, openActs = new Set();     // which day the Today panel shows (0 = today), open activities
 function renderToday(){
-  const T = D.td;
+  const T = D.tdays[dayIdx], now = dayIdx === 0;
   const el = document.getElementById('today'), t0 = P(T.date);
   const im = T.imMod + 2*T.imVig;
   const st = T.stressMix, stTot = (st.rest+st.low+st.medium+st.high) || 1;
   const SM = [['rest','Rest','#1c5cab'],['low','Low','#5598e7'],['medium','Medium','#c98500'],['high','High','#d95926']];
   const stressBar = `<div class="thin">${SM.map(([k,,c]) => st[k] ? `<i style="flex:${st[k]};background:${c}"></i>` : '').join('')}</div>`;
-  const wk = sum(daysIn(W0, W0+7*DAY).map(d=>d.im));
+  const wk = sum(daysIn(MON(t0), MON(t0)+7*DAY).map(d=>d.im));
   const ss = T.sleepStages;
   const sleepBar = ss ? `<div class="thin">${[['deep','#3987e5'],['rem','#d95926'],['light','#199e70'],['awake','#c98500']].map(([k,c]) => ss[k] ? `<i style="flex:${ss[k]};background:${c}"></i>` : '').join('')}</div>` : '';
+  const last = dayIdx >= D.tdays.length-1, night = now ? 'last night' : 'night before';
   el.innerHTML = `
-    <div class="todayhead"><div><div class="eyebrow">Today</div><h2>${fd(t0,{weekday:'long',day:'numeric',month:'long'})}</h2></div>
-      <div class="meta">${T.asof ? `Watch last synced ${T.asof}` : ''}${T.acts.length ? ` · ${T.acts.length} activit${T.acts.length===1?'y':'ies'}` : ''}</div></div>
+    <div class="todayhead"><div><div class="eyebrow">${now ? 'Today' : dayIdx === 1 ? 'Yesterday' : dayIdx + ' days ago'}</div><h2>${fd(t0,{weekday:'long',day:'numeric',month:'long'})}</h2></div>
+      <div class="dayside"><div class="daynav" role="group" aria-label="Choose a day">
+        <button class="rbtn" data-nav="1" aria-label="Previous day"${last?' disabled':''}>‹</button><button class="rbtn" data-nav="0"${now?' disabled':''}>Today</button><button class="rbtn" data-nav="-1" aria-label="Next day"${now?' disabled':''}>›</button></div>
+      <div class="meta">${now && T.asof ? `Watch last synced ${T.asof}` : ''}${T.acts.length ? `${now && T.asof ? ' · ' : ''}${T.acts.length} activit${T.acts.length===1?'y':'ies'}` : ''}</div></div></div>
     <div class="tgrid">
       ${tm('Steps', n0(T.steps), '', T.stepsGoal ? `goal ${n0(T.stepsGoal)} · ${n1(T.km)} km` : `${n1(T.km)} km`, meter(T.steps, T.stepsGoal))}
       ${tm('Active minutes', n0(im), 'min', `${T.imMod} mod · ${T.imVig} vig (×2)`, meter(wk, 150))}
       ${tm('Calories', n0(T.calAct), 'active', `${n0(T.calTot)} total`)}
       ${tm('Resting HR', T.rhr ?? '–', 'bpm', T.rhr7 ? `7-day avg ${T.rhr7}` : '')}
-      ${tm('Heart rate range', T.hrMin && T.hrMax ? `${T.hrMin}–${T.hrMax}` : '–', 'bpm', 'low – high today')}
-      ${tm('Body Battery', T.bbNow ?? '–', 'now', T.bbUp!=null ? `+${T.bbUp} / −${T.bbDown} today` : '')}
+      ${tm('Heart rate range', T.hrMin && T.hrMax ? `${T.hrMin}–${T.hrMax}` : '–', 'bpm', now ? 'low – high today' : 'low – high')}
+      ${tm('Body Battery', T.bbNow ?? '–', now ? 'now' : 'at day end', T.bbUp!=null ? `+${T.bbUp} / −${T.bbDown}${now?' today':''}` : '')}
       ${tm('Stress', T.stress && T.stress>0 ? T.stress : '–', 'avg', `${Math.round((st.rest+st.low)/stTot*100)}% calm · peak ${T.stressMax ?? '–'}`, stressBar)}
-      ${tm('Sleep last night', T.sleepH ? hm(T.sleepH*60) : '–', '', T.sleepScore ? `score ${T.sleepScore}${T.sleepQual?' · '+T.sleepQual.toLowerCase():''}` : 'not tracked', sleepBar)}
-      ${tm('HRV last night', T.hrv ?? '–', T.hrv ? 'ms' : '', T.hrvWeek ? `7-day avg ${T.hrvWeek} ms` : (T.hrv ? '' : 'not tracked'))}
-      ${tm('Breathing', T.resp ?? '–', T.resp ? 'brpm' : '', 'average today')}
+      ${tm('Sleep ' + night, T.sleepH ? hm(T.sleepH*60) : '–', '', T.sleepScore ? `score ${T.sleepScore}${T.sleepQual?' · '+T.sleepQual.toLowerCase():''}` : 'not tracked', sleepBar)}
+      ${tm('HRV ' + night, T.hrv ?? '–', T.hrv ? 'ms' : '', T.hrvWeek ? `7-day avg ${T.hrvWeek} ms` : (T.hrv ? '' : 'not tracked'))}
+      ${tm('Breathing', T.resp ?? '–', T.resp ? 'brpm' : '', now ? 'average today' : 'average')}
       ${tm('Floors climbed', T.floors ?? '–', '', T.floorsGoal ? `goal ${T.floorsGoal}` : '', meter(T.floors||0, T.floorsGoal))}
       ${tm('Water', T.waterMl ? n1(T.waterMl/1000) : '0', 'L', T.waterGoal ? `goal ${n1(T.waterGoal/1000)} L` : '')}
     </div>
-    <div class="tcharts">
+    ${T.graphs ? `<div class="tcharts">
       <div><h3>Heart rate through the day</h3><div class="chartbox" id="tHR"></div></div>
       <div><h3>Body Battery</h3><div class="chartbox" id="tBB"></div></div>
     </div>
-    <div class="legend" id="tLegend"></div>`;
+    <div class="legend" id="tLegend"></div>` : `<p class="q" style="margin:14px 0 0">Graphs through the day are kept for the last 7 days.</p>`}`;
 
-  // Shade activity windows on the day charts
-  const windows = T.acts.map(a => { const [h,m] = a.start.split(':').map(Number); return {a, x0: h*60+m, x1: h*60+m+a.min}; });
-  const endMin = Math.max(60, ...T.hr.map(p=>p[0]), ...T.bb.map(p=>p[0]));
-  dayLine(document.getElementById('tHR'), T.hr, {c:'#e66767', h:170, x1: Math.min(1440, Math.ceil(endMin/60)*60), windows,
-    fmt: v => v, tip: (m, v) => `<div class="t">${hhmm(m)}</div>${row('Heart rate', v+' bpm')}` + windows.filter(w=>m>=w.x0&&m<=w.x1).map(w=>row(SP[w.a.s].name, esc(w.a.name))).join('')});
-  dayLine(document.getElementById('tBB'), T.bb, {c:'#3987e5', h:170, x1: Math.min(1440, Math.ceil(endMin/60)*60), windows, step:true, lo:0, hi:100,
-    fmt: v => v, tip: (m, v) => `<div class="t">${hhmm(m)}</div>${row('Body Battery', v)}`});
-  document.getElementById('tLegend').innerHTML = windows.length ? `<span><i style="background:rgba(255,255,255,.12)"></i>Shaded: your activities</span>` : '';
+  if (T.graphs){
+    // Shade activity windows on the day charts
+    const windows = T.acts.map(a => { const [h,m] = a.start.split(':').map(Number); return {a, x0: h*60+m, x1: h*60+m+a.min}; });
+    const endMin = now ? Math.max(60, ...T.hr.map(p=>p[0]), ...T.bb.map(p=>p[0])) : 1440;
+    const x1 = Math.min(1440, Math.ceil(endMin/60)*60), empty = now ? 'No data yet today.' : 'No data for this day.';
+    dayLine(document.getElementById('tHR'), T.hr, {c:'#e66767', h:170, x1, windows, empty,
+      fmt: v => v, tip: (m, v) => `<div class="t">${hhmm(m)}</div>${row('Heart rate', v+' bpm')}` + windows.filter(w=>m>=w.x0&&m<=w.x1).map(w=>row(SP[w.a.s].name, esc(w.a.name))).join('')});
+    dayLine(document.getElementById('tBB'), T.bb, {c:'#3987e5', h:170, x1, windows, empty, step:true, lo:0, hi:100,
+      fmt: v => v, tip: (m, v) => `<div class="t">${hhmm(m)}</div>${row('Body Battery', v)}`});
+    document.getElementById('tLegend').innerHTML = windows.length ? `<span><i style="background:rgba(255,255,255,.12)"></i>Shaded: your activities</span>` : '';
+  }
+  renderActs(T);
+}
 
-  // Activity cards
-  document.getElementById('todayActs').innerHTML = T.acts.length
-    ? T.acts.map((a,i) => `<section class="card act" id="act${i}"></section>`).join('')
-    : `<section class="card act"><div class="empty">No activities yet today. Detailed graphs show up here after your watch syncs one.</div></section>`;
-  T.acts.forEach((a,i) => renderActivity(document.getElementById('act'+i), a));
+// The day's activities as a short list; tap one to open its stats and graphs.
+function renderActs(T){
+  const el = document.getElementById('todayActs'), now = dayIdx === 0;
+  if (!T.acts.length){
+    el.innerHTML = `<section class="card act"><div class="empty">${now ? 'No activities yet today. They show up here after your watch syncs one.' : 'No activities on this day.'}</div></section>`;
+    return;
+  }
+  el.innerHTML = `<section class="card actlist"><h2>${now ? "Today's activities" : 'Activities'}</h2><p class="q" style="margin-bottom:4px">Tap one to see its stats and graphs.</p>`
+    + T.acts.map((a,i) => {
+      const open = openActs.has(i);
+      return `<button class="actrow" data-i="${i}" aria-expanded="${open}"><span class="sw" style="background:${SP[a.s].c}"></span><span class="an">${esc(a.name || a.ty)}</span><span class="am">${a.start} · ${a.km ? n1(a.km)+' km · ' : ''}${hm(a.min)}</span><span class="chev" aria-hidden="true">${open ? '▴' : '▾'}</span></button>`
+        + (open ? `<div class="act" id="act${i}"></div>` : '');
+    }).join('') + '</section>';
+  T.acts.forEach((a,i) => { if (openActs.has(i)) renderActivity(document.getElementById('act'+i), a); });
 }
 
 // A day-long line (x = minutes after midnight)
 function dayLine(el, pts, o){
   const W = Math.max(el.clientWidth, 240), H = o.h, m = {l:34, r:10, t:10, b:24};
-  if (!pts.length){ el.innerHTML = '<div class="empty">No data yet today.</div>'; return; }
+  if (!pts.length){ el.innerHTML = `<div class="empty">${o.empty}</div>`; return; }
   const vals = pts.map(p=>p[1]);
   let lo = o.lo ?? Math.min(...vals), hi = o.hi ?? Math.max(...vals);
   if (o.lo == null){ const sp = (hi-lo)||10; lo -= sp*.1; hi += sp*.1; }
@@ -1038,7 +1173,6 @@ const smooth = (a, k) => a.map((_,i) => { let s = 0, n = 0; for (let j = Math.ma
 const pct = (a, p) => { const b = a.filter(v=>v!=null).sort((x,y)=>x-y); return b.length ? b[Math.min(b.length-1, Math.floor(p*(b.length-1)))] : null; };
 
 function renderActivity(el, a){
-  const S = a.series, sp = SP[a.s];
   const end = (() => { const [h,m] = a.start.split(':').map(Number); return hhmm(h*60+m+a.min); })();
   const pace = a.spd ? 1000/a.spd/60 : null;
   const onFoot = ONFOOT.has(a.s);
@@ -1064,8 +1198,7 @@ function renderActivity(el, a){
   if (zTot) bars.push(`<div><h3>Time in heart rate zones</h3>${segBar(a.z.map((v,i) => ({v, c:ZC[i], ink:ZI[i], share:v/zTot, tip:`<div class="t">Zone ${i+1}</div>${D.zones[i]?row('Heart rate', D.zones[i]+'+ bpm'):''}${row('Time', hm(v))}${row('Share', Math.round(v/zTot*100)+'%')}`})))}<div class="legend">${a.z.map((v,i)=>v?`<span><i style="background:${ZC[i]}"></i>Z${i+1} ${hm(v)}</span>`:'').join('')}</div></div>`);
 
   el.innerHTML = `
-    <div class="acthead"><span class="sw" style="background:${sp.c};width:12px;height:12px"></span><h2>${esc(a.name || a.ty)}</h2>
-      <span class="pill">${esc(a.ty)}</span><span class="pill">${a.start}–${end}</span></div>
+    <div class="acthead"><span class="pill">${esc(a.ty)}</span><span class="pill">${a.start}–${end}</span></div>
     <div class="astats">${stats.map(x => tm(...x)).join('')}</div>
     ${bars.length ? `<div class="abars">${bars.join('')}</div>` : ''}
     <div class="acharts" id="${el.id}c"></div>`;
@@ -1124,8 +1257,18 @@ function actCharts(root, a){
 }
 
 // ---------- page ----------
+// Running or Health & strength: remembered in this browser only
+let view = 'run';
+try { if (localStorage.getItem('view') === 'health') view = 'health'; } catch (e) { /* storage blocked: start on Running */ }
+function renderView(){
+  document.getElementById('runView').hidden = view !== 'run';
+  document.getElementById('healthView').hidden = view === 'run';
+  document.getElementById('view').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === view));
+  if (view === 'run'){ renderHero(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderZones(); renderRecords(); }
+  else renderHealth();
+}
 function renderAll(){
-  renderReady(); renderToday(); renderHero(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderZones(); renderRecords();
+  renderReady(); renderToday(); renderView();
 }
 if (D.name){ document.getElementById('who').textContent = D.name + "'s training log"; document.title = D.name + "'s training"; }
 document.getElementById('meta').innerHTML = `Updated ${esc(D.built)}<br>${D.acts.length} activities · ${D.days.length} days · ${D.sleep.length} nights`;
@@ -1137,6 +1280,20 @@ function seg(id, attr, onPick){
 }
 seg('wkMetric', 'm', v => { wkMetric = v; renderWeeks(); });
 seg('range', 'r', v => { rangeM = +v; renderTrends(); });
+seg('hrange', 'r', v => { hRangeM = +v; renderHealth(); });
+seg('view', 'v', v => { view = v; try { localStorage.setItem('view', v); } catch (e) { /* not remembered */ } renderView(); });
+document.getElementById('today').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || b.dataset.nav == null) return;
+  const n = +b.dataset.nav, next = n === 0 ? 0 : Math.min(D.tdays.length-1, Math.max(0, dayIdx + n));
+  if (next === dayIdx) return;
+  dayIdx = next; openActs = new Set(); renderToday();
+});
+document.getElementById('todayActs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || b.dataset.i == null) return;
+  const i = +b.dataset.i;
+  if (openActs.has(i)) openActs.delete(i); else openActs.add(i);
+  renderActs(D.tdays[dayIdx]);
+});
 renderAll();
 
 // Refresh button: only when served by server.py (not when opened as a file).

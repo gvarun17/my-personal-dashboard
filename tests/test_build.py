@@ -68,7 +68,7 @@ class BuildTests(TempDataCase):
         # vigorous minutes count double
         day = next(x for x in d["days"] if x["st"])
         self.assertEqual(day["im"], 20 + 2 * 10)
-        td = d["td"]
+        td = d["tdays"][0]
         self.assertEqual(td["date"], ds(TODAY))
         self.assertEqual(td["asof"], "18:45")
         self.assertEqual(len(td["acts"]), 2)
@@ -84,9 +84,9 @@ class BuildTests(TempDataCase):
         self.assertEqual(d["days"], [])
         self.assertIsNone(d["fitAge"])
         self.assertEqual(d["zones"], [None] * 6)
-        self.assertEqual(d["td"]["acts"], [])
-        self.assertIsNone(d["td"]["sleepH"])
-        self.assertIsNone(d["td"]["sleepStages"])
+        self.assertEqual(d["tdays"][0]["acts"], [])
+        self.assertIsNone(d["tdays"][0]["sleepH"])
+        self.assertIsNone(d["tdays"][0]["sleepStages"])
 
     def test_odd_inputs(self):
         self.write("fitness_age.json", [1, 2])          # not a dict
@@ -107,7 +107,7 @@ class BuildTests(TempDataCase):
         self.assertEqual(d["weight"], [])
         self.assertEqual(d["sleep"], [])
         self.assertIsNone(d["fitAge"])
-        self.assertEqual(d["td"]["acts"][0]["series"], {})   # no detail downloaded
+        self.assertEqual(d["tdays"][0]["acts"][0]["series"], {})   # no detail downloaded
 
     def test_html_in_names_cannot_break_out_of_the_script(self):
         evil = make_activity(1, datetime.combine(TODAY, datetime.min.time()), "walking",
@@ -121,15 +121,37 @@ class BuildTests(TempDataCase):
     def test_build_today_without_saved_today(self):
         write_dataset(self, with_today=False)
         _, d, _ = self.build()
-        self.assertIsNone(d["td"]["acts"][0]["series"].get("hr"))
-        self.assertEqual(d["td"]["hr"], [])
+        self.assertTrue(d["tdays"][0]["acts"][0]["series"].get("hr"))   # graphs from the details cache
+        self.assertEqual(d["tdays"][0]["hr"], [])
+        for p in (self.data / "details").iterdir():
+            p.unlink()
+        _, d, _ = self.build()
+        self.assertIsNone(d["tdays"][0]["acts"][0]["series"].get("hr"))
+
+    def test_earlier_days_for_the_date_switcher(self):
+        write_dataset(self)
+        yesterday = ds(TODAY - timedelta(days=1))
+        self.assertEqual(len(list((self.data / "days").glob("*.json"))), 6)   # saved by the download
+        (self.data / "days" / f"{ds(TODAY - timedelta(days=2))}.json").unlink()
+        (self.data / "days" / f"{yesterday}.json").write_text(
+            json.dumps({"date": "ignored", "hr": [[60, 55]], "bb": [[60, 80]], "rhr7": 58, "acts": {}}), encoding="utf-8")
+        _, d, _ = self.build()
+        days = d["tdays"]
+        self.assertEqual(len(days), build.HISTORY_DAYS)
+        self.assertEqual([x["date"] for x in days[:2]], [ds(TODAY), yesterday])
+        self.assertEqual((days[1]["hr"], days[1]["rhr7"]), ([[60, 55]], 58))
+        self.assertEqual([x["graphs"] for x in days[:8]], [True] * build.GRAPH_DAYS + [False])
+        self.assertEqual(days[2]["hr"], [])                                  # no saved file for that day
+        self.assertTrue(days[2]["acts"])                                      # its activities still listed
+        self.assertTrue(all(x["date"] == ds(TODAY - timedelta(days=i)) for i, x in enumerate(days)))
+        self.assertIn("cal", d["days"][-1])
 
     def test_today_uses_saved_date(self):
         yesterday = TODAY - timedelta(days=1)
         self.write("today.json", {"date": ds(yesterday), "hr": [[0, 60]], "bb": [], "acts": {}})
         _, d, _ = self.build()
-        self.assertEqual(d["td"]["date"], ds(yesterday))
-        self.assertIsNone(d["td"]["asof"])
+        self.assertEqual(d["tdays"][0]["date"], ds(yesterday))
+        self.assertIsNone(d["tdays"][0]["asof"])
 
     def test_output_paths_from_environment(self):
         target = self.root / "nested" / "out.html"
