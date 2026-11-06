@@ -16,7 +16,7 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 
 def payload_of(html):
     """The JSON data embedded in the dashboard."""
-    line = next(l for l in html.splitlines() if l.startswith("const D = "))
+    line = next(ln for ln in html.splitlines() if ln.startswith("const D = "))
     return json.loads(line[len("const D = "):].rstrip(";").replace("<\\/", "</"))
 
 

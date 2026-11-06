@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 import build
+import settings
 from tests.helpers import TODAY, TempDataCase, ds, make_activity, make_details, write_dataset
 
 HERE = Path(__file__).resolve().parent
@@ -70,11 +71,13 @@ class DashboardJavaScriptTests(TempDataCase):
     def test_dashboard_javascript(self):
         scenarios = []
 
-        # 1. Full year-ish of data, desktop, opened as a file
+        # 1. Full year-ish of data, desktop, opened as a file, name set on the start page
         write_dataset(self)
+        settings.save(name="Test Runner", tz="Europe/London", key="not-a-real-key")
         scenarios.append({"name": "full data, desktop, file", "html": self.build_html("full"),
                           "width": 1280, "protocol": "file:",
-                          "expect": [["today", "Steps"], ["tiles", "Distance this week"], ["recs", "Longest distance"]]})
+                          "expect": [["today", "Steps"], ["tiles", "Distance this week"], ["recs", "Longest distance"]],
+                          "expectText": [["who", "Test Runner's training log"]]})
 
         # 2. Same data on a phone, served by server.py: a refresh is running when the page opens
         scenarios.append({"name": "full data, phone, web app", "html": scenarios[0]["html"], "width": 375,

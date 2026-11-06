@@ -6,6 +6,7 @@ import urllib.error
 from unittest import mock
 
 import garmin_api
+import settings
 from tests.helpers import FakeResponse, TempDataCase, http_error
 
 
@@ -21,12 +22,22 @@ class ReadKeyTests(TempDataCase):
 
     def test_empty_key_in_file_is_an_error(self):
         garmin_api.ENV_FILE.write_text("GARMIN_PERSONAL_API_KEY=\n", encoding="utf-8")
-        with self.assertRaisesRegex(garmin_api.GarminError, "not set"):
+        with self.assertRaisesRegex(garmin_api.GarminError, "No Garmin key is set up yet"):
             garmin_api._read_key()
 
     def test_missing_file_is_an_error(self):
-        with self.assertRaisesRegex(garmin_api.GarminError, "not set"):
+        with self.assertRaisesRegex(garmin_api.GarminError, "start page"):
             garmin_api._read_key()
+        self.assertEqual(garmin_api.find_key(), (None, None))
+
+    def test_start_page_key_wins_and_sources_are_reported(self):
+        garmin_api.ENV_FILE.write_text("GARMIN_PERSONAL_API_KEY=from-file\n", encoding="utf-8")
+        self.assertEqual(garmin_api.find_key(), ("from-file", ".env.local"))
+        with mock.patch.dict(os.environ, {"GARMIN_PERSONAL_API_KEY": "from-env"}):
+            self.assertEqual(garmin_api.find_key(), ("from-env", "environment"))
+            settings.save(key=" from-page ")
+            self.assertEqual(garmin_api.find_key(), ("from-page", "start page"))
+            self.assertEqual(garmin_api._read_key(), "from-page")
 
 
 class TokenTests(TempDataCase):
@@ -46,6 +57,11 @@ class TokenTests(TempDataCase):
         self.assertEqual(saved["token"], "tok-123")
         if os.name != "nt":
             self.assertEqual(garmin_api.TOKEN_FILE.stat().st_mode & 0o777, 0o600)
+
+    def test_check_key_uses_the_given_key(self):
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse(b"tok-9")) as op:
+            self.assertEqual(garmin_api.check_key("typed-on-start-page"), "tok-9")
+        self.assertEqual(op.call_args[0][0].get_header("Authorization"), "ApiKey typed-on-start-page")
 
     def test_refused_key_never_shows_the_key(self):
         with mock.patch("urllib.request.urlopen", side_effect=http_error(401)):

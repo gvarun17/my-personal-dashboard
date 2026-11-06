@@ -1,8 +1,9 @@
 """Tiny read-only client for Garmin's Personal API (standard library only).
 
-The API key is read from the GARMIN_PERSONAL_API_KEY environment variable
-(used in the container) or from .env.local, and is never printed or logged.
-Downloaded data goes to GARMIN_DATA_DIR (default: ./data).
+The API key comes from, in order: the start page (saved in
+data/settings.json), the GARMIN_PERSONAL_API_KEY environment variable, or
+.env.local. It is never printed or logged. Downloaded data goes to
+GARMIN_DATA_DIR (default: ./data).
 """
 import json
 import os
@@ -10,6 +11,8 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+import settings
 
 ROOT = Path(__file__).resolve().parent.parent   # project folder (holds .env.local and data/)
 DATA = Path(os.environ.get("GARMIN_DATA_DIR") or ROOT / "data")
@@ -25,33 +28,50 @@ class GarminError(Exception):
     pass
 
 
-def _read_key():
+def find_key():
+    """(key, where it came from), or (None, None) when no key is set up yet."""
+    key = (settings.load().get("key") or "").strip()
+    if key:
+        return key, "start page"
     key = (os.environ.get("GARMIN_PERSONAL_API_KEY") or "").strip()
     if key:
-        return key
+        return key, "environment"
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
             if line.startswith("GARMIN_PERSONAL_API_KEY="):
                 key = line.split("=", 1)[1].strip()
                 if key:
-                    return key
-    raise GarminError("GARMIN_PERSONAL_API_KEY is not set. Put your key in .env.local.")
+                    return key, ".env.local"
+    return None, None
 
 
-def _new_token():
-    key = _read_key()
-    req = urllib.request.Request(
+def _read_key():
+    key, _ = find_key()
+    if not key:
+        raise GarminError("No Garmin key is set up yet. Open the web app's start page, "
+                          "or put GARMIN_PERSONAL_API_KEY in .env.local.")
+    return key
+
+
+def check_key(key):
+    """Try a key by swapping it for a token. Raises GarminError if Garmin refuses it."""
+    return _new_token(key)
+
+
+def _new_token(key=None):
+    key = key or _read_key()
+    req = urllib.request.Request(  # noqa: S310 - fixed https:// Garmin URL
         TOKEN_URL, data=b"", method="POST",
         headers={"Authorization": f"ApiKey {key}", "User-Agent": UA},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 - fixed https:// Garmin URL
             token = r.read().decode().strip().strip('"')
     except urllib.error.HTTPError as e:
         e.close()
         raise GarminError(
-            f"Garmin refused the key (HTTP {e.code}). It may be missing, "
-            "mistyped or expired: check GARMIN_PERSONAL_API_KEY in .env.local."
+            f"Garmin refused the key (HTTP {e.code}). It may be mistyped or expired: "
+            "check it, or create a new one in Garmin Connect."
         ) from None
     except urllib.error.URLError as e:
         raise GarminError(f"Could not reach Garmin: {e.reason}") from None
@@ -85,13 +105,13 @@ def get(path, retries=4):
     token = get_token()
     renewed = False
     for attempt in range(retries + 1):
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310 - fixed https:// Garmin URL
             BASE + path,
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
                      "User-Agent": UA},
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with urllib.request.urlopen(req, timeout=60) as r:  # noqa: S310 - fixed https:// Garmin URL
                 body = r.read()
             return json.loads(body) if body.strip() else None
         except urllib.error.HTTPError as e:

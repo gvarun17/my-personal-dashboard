@@ -7,12 +7,38 @@ import runpy
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
+from urllib.parse import urlencode
 from pathlib import Path
 from unittest import mock
 
+import garmin_api
 import server
+import settings
+
+
+class Isolated(unittest.TestCase):
+    """Settings and .env.local point at a temporary folder; a key is set up."""
+
+    def setUp(self):
+        self._iso = tempfile.TemporaryDirectory()
+        self.addCleanup(self._iso.cleanup)
+        self.iso = Path(self._iso.name)
+        for target, attr, value in ((settings, "DATA", self.iso), (garmin_api, "ENV_FILE", self.iso / ".env.local")):
+            p = mock.patch.object(target, attr, value)
+            p.start()
+            self.addCleanup(p.stop)
+        if hasattr(time, "tzset"):
+            self.addCleanup(time.tzset)        # runs last: re-read the restored TZ
+        p = mock.patch.dict(os.environ, {"GARMIN_PERSONAL_API_KEY": ""})
+        p.start()
+        self.addCleanup(p.stop)
+        settings.save(name="Tester", tz="Europe/London", key="test-key")
+
+    def clear_key(self):
+        settings.path().unlink()
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 
@@ -112,7 +138,65 @@ class RefresherTests(unittest.TestCase):
         self.assertIsNotNone(self.r.status()["lastOk"])
 
 
-class SchedulerTests(unittest.TestCase):
+class SetupHelperTests(Isolated):
+    def test_child_env_uses_current_settings(self):
+        with mock.patch.dict(os.environ, {"TZ": "Asia/Tokyo"}):
+            env = server.child_env()
+        self.assertEqual(env["TZ"], "Asia/Tokyo")
+        self.assertEqual(env["GARMIN_DATA_DIR"], str(server.DATA))
+        self.assertEqual(env["DASHBOARD_OUT"], str(server.OUT))
+
+    def test_configured(self):
+        self.assertTrue(server.configured())
+        self.clear_key()
+        self.assertFalse(server.configured())
+
+    def test_apply_tz(self):
+        with mock.patch.dict(os.environ, {"TZ": "UTC"}):
+            with mock.patch.object(server.time, "tzset", create=True) as tzset:
+                server.apply_tz("Asia/Kolkata")
+                self.assertEqual(os.environ["TZ"], "Asia/Kolkata")
+                tzset.assert_called_once()
+                server.apply_tz(None)
+                server.apply_tz("")
+                self.assertEqual(os.environ["TZ"], "Asia/Kolkata")
+            with mock.patch("server.hasattr", return_value=False, create=True):   # Windows: no tzset
+                server.apply_tz("Europe/Paris")
+            self.assertEqual(os.environ["TZ"], "Europe/Paris")
+        if hasattr(server.time, "tzset"):
+            server.time.tzset()
+
+    def test_setup_page_first_time(self):
+        self.clear_key()
+        with mock.patch.dict(os.environ, {"TZ": "UTC"}):
+            page = server.setup_page()
+        self.assertIn("Welcome! Let's set up your dashboard", page)
+        self.assertIn('value=""', page)                 # UTC default left for the browser to fill in
+        self.assertIn("required placeholder=\"Paste your key here\"", page)
+        self.assertIn("Connect to Garmin", page)
+        self.assertNotIn("Back to the dashboard", page)
+        self.assertIn("personalApiToken", page)
+
+    def test_setup_page_when_set_up(self):
+        page = server.setup_page(error="<script>bad</script>")
+        self.assertIn("Settings", page)
+        self.assertIn('value="Tester"', page)
+        self.assertIn('value="Europe/London"', page)
+        self.assertIn("A key is set up (from the start page)", page)
+        self.assertIn("Leave empty to keep your current key", page)
+        self.assertIn("&lt;script&gt;bad", page)
+        self.assertNotIn("<script>bad", page)
+        self.assertNotIn("test-key", page)              # the key is never sent back
+        for z in settings.time_zones()[:3]:
+            self.assertIn(f'<option value="{z}">', page)
+
+    def test_setup_page_keeps_typed_values(self):
+        page = server.setup_page(name='A "quoted" name', tz="Asia/Tokyo")
+        self.assertIn('value="A &quot;quoted&quot; name"', page)
+        self.assertIn('value="Asia/Tokyo"', page)
+
+
+class SchedulerTests(Isolated):
     def test_no_auto_refresh_with_existing_dashboard(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp, "dashboard.html")
@@ -139,8 +223,20 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(start.call_count, 2)          # at start-up, then after the first wait
         sleep.assert_called_with(30 * 60)
 
+    def test_waits_for_setup_before_refreshing(self):
+        self.clear_key()
 
-class HandlerTests(unittest.TestCase):
+        class Stop(Exception):
+            pass
+        with mock.patch.object(server, "REFRESH_MINUTES", 30), \
+                mock.patch.object(server.refresher, "start") as start, \
+                mock.patch("time.sleep", side_effect=[None, Stop()]):
+            with self.assertRaises(Stop):
+                server.scheduler()
+        start.assert_not_called()
+
+
+class HandlerTests(Isolated):
     """Real HTTP requests against the handler on a random local port."""
 
     @classmethod
@@ -156,6 +252,7 @@ class HandlerTests(unittest.TestCase):
         cls.httpd.server_close()
 
     def setUp(self):
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.out = Path(self._tmp.name, "dashboard.html")
@@ -165,12 +262,15 @@ class HandlerTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def request(self, method, path, auth=None, headers=None):
+    def request(self, method, path, auth=None, headers=None, body=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         h = dict(headers or {})
         if auth is not None:
             h["Authorization"] = "Basic " + base64.b64encode(auth.encode()).decode()
-        conn.request(method, path, headers=h)
+        if isinstance(body, dict):
+            body = urlencode(body)
+            h.setdefault("Content-Type", "application/x-www-form-urlencoded")
+        conn.request(method, path, body=body, headers=h)
         r = conn.getresponse()
         body = r.read()
         conn.close()
@@ -242,6 +342,138 @@ class HandlerTests(unittest.TestCase):
                 self.assertEqual(self.request("GET", "/", auth="varun:pw-123")[0].status, 200)
 
 
+class SetupRouteTests(HandlerTests):
+    """The start page over real HTTP."""
+
+    def setUp(self):
+        super().setUp()
+        for attr in ("apply_tz",):
+            p = mock.patch.object(server, attr)
+            setattr(self, attr, p.start())
+            self.addCleanup(p.stop)
+        p = mock.patch.object(self.refresher, "start", return_value=True)
+        self.refresh_start = p.start()
+        self.addCleanup(p.stop)
+        p = mock.patch("sys.stdout", new_callable=io.StringIO)
+        p.start()
+        self.addCleanup(p.stop)
+        p = mock.patch.object(settings, "time_zones", return_value=["Asia/Kolkata", "Europe/London"])
+        p.start()
+        self.addCleanup(p.stop)
+
+    def post(self, form, headers=None):
+        return self.request("POST", "/setup", body=form, headers=headers)
+
+    def test_first_visit_goes_to_the_start_page(self):
+        self.clear_key()
+        r, _ = self.request("GET", "/")
+        self.assertEqual((r.status, r.getheader("Location")), (303, "setup"))
+        for path in ("/setup", "/setup/"):
+            r, body = self.request("GET", path)
+            self.assertEqual(r.status, 200)
+            self.assertIn(b"Welcome!", body)
+
+    def test_older_browser_time_zone_name_is_accepted(self):
+        self.clear_key()
+        with mock.patch.object(garmin_api, "check_key"):
+            r, _ = self.post({"name": "Varun", "tz": "Asia/Calcutta", "key": "k"})
+        self.assertEqual(r.status, 303)
+        self.assertEqual(settings.load()["tz"], "Asia/Kolkata")
+
+    def test_first_time_setup(self):
+        self.clear_key()
+        with mock.patch.object(garmin_api, "check_key", return_value="tok") as check:
+            r, _ = self.post({"name": "  Varun ", "tz": "Asia/Kolkata", "key": " abc 123\n"})
+        self.assertEqual((r.status, r.getheader("Location")), (303, "./"))
+        check.assert_called_once_with("abc123")
+        saved = settings.load()
+        self.assertEqual((saved["name"], saved["tz"], saved["key"]), ("Varun", "Asia/Kolkata", "abc123"))
+        self.apply_tz.assert_called_once_with("Asia/Kolkata")
+        self.refresh_start.assert_called_once()
+        self.assertTrue(server.configured())
+
+    def test_changing_name_keeps_the_key(self):
+        with mock.patch.object(garmin_api, "check_key") as check:
+            r, _ = self.post({"name": "New Name", "tz": "Europe/London", "key": ""})
+        self.assertEqual(r.status, 303)
+        check.assert_not_called()
+        self.assertEqual(settings.load()["key"], "test-key")
+        self.assertEqual(settings.load()["name"], "New Name")
+
+    def test_mistakes_are_shown_and_nothing_is_saved(self):
+        self.clear_key()
+        cases = [({"name": " ", "tz": "Asia/Kolkata", "key": "k"}, b"Please enter your name"),
+                 ({"name": "V", "tz": "Mars/Base", "key": "k"}, b"pick your time zone"),
+                 ({"name": "V", "tz": "Asia/Kolkata", "key": ""}, b"paste your Garmin Personal API key"),
+                 ({"name": "V"}, b"pick your time zone")]
+        for form, message in cases:
+            r, body = self.post(form)
+            self.assertEqual(r.status, 400, form)
+            self.assertIn(message, body)
+        self.assertFalse(settings.path().exists())
+        self.refresh_start.assert_not_called()
+
+    def test_refused_key(self):
+        self.clear_key()
+        refused = garmin_api.GarminError("Garmin refused the key (HTTP 401).")
+        with mock.patch.object(garmin_api, "check_key", side_effect=refused):
+            r, body = self.post({"name": "Varun", "tz": "Asia/Kolkata", "key": "wrong-key-value"})
+        self.assertEqual(r.status, 400)
+        self.assertIn(b"Garmin refused the key (HTTP 401).", body)
+        self.assertIn(b'value="Varun"', body)
+        self.assertNotIn(b"wrong-key-value", body)        # never echoed back
+        self.assertFalse(settings.path().exists())
+
+    def test_size_limits(self):
+        r, _ = self.request("POST", "/setup", body="x" * 20001,
+                            headers={"Content-Type": "application/x-www-form-urlencoded"})
+        self.assertEqual(r.status, 413)
+        r, _ = self.request("POST", "/setup", headers={"Content-Length": "nope"})
+        self.assertEqual(r.status, 413)
+        r, _ = self.request("POST", "/setup")              # empty form
+        self.assertEqual(r.status, 400)
+
+    def test_other_websites_cannot_post(self):
+        form = {"name": "x", "tz": "Asia/Kolkata", "key": "evil"}
+        host = f"127.0.0.1:{self.port}"
+        r, _ = self.post(form, {"Origin": "https://evil.example"})
+        self.assertEqual(r.status, 403)
+        r, _ = self.post(form, {"Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(r.status, 403)
+        r, _ = self.post(form, {"Sec-Fetch-Site": "same-site"})       # e.g. another port
+        self.assertEqual(r.status, 403)
+        r, _ = self.post(form, {"Origin": "null"})                    # sandboxed page, old browser
+        self.assertEqual(r.status, 403)
+        r, _ = self.request("POST", "/refresh", headers={"Origin": "https://evil.example"})
+        self.assertEqual(r.status, 403)
+        with mock.patch.object(garmin_api, "check_key"):
+            r, _ = self.post(form, {"Origin": f"http://{host}", "Sec-Fetch-Site": "same-origin"})
+            self.assertEqual(r.status, 303)
+            r, _ = self.post(form, {"Origin": f"http://{host}"})          # older browser, own page
+            self.assertEqual(r.status, 303)
+
+    def test_own_page_post_with_null_origin_is_allowed(self):
+        # What a browser really sends for the start page's own form when the
+        # page had "Referrer-Policy: no-referrer" (the cause of a 403 bug).
+        form = {"name": "x", "tz": "Asia/Kolkata", "key": "k"}
+        with mock.patch.object(garmin_api, "check_key"):
+            r, _ = self.post(form, {"Origin": "null", "Sec-Fetch-Site": "same-origin"})
+        self.assertEqual(r.status, 303)
+        with mock.patch.object(server.refresher, "start", return_value=True):
+            r, _ = self.request("POST", "/refresh", headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"})
+        self.assertNotEqual(r.status, 403)
+
+    def test_referrer_policy_keeps_origin_for_own_posts(self):
+        r, _ = self.request("GET", "/setup")
+        self.assertEqual(r.getheader("Referrer-Policy"), "same-origin")
+
+    def test_start_page_needs_the_password_too(self):
+        with mock.patch.object(server, "PASSWORD", "pw"):
+            self.assertEqual(self.request("GET", "/setup")[0].status, 401)
+            self.assertEqual(self.post({"name": "x"})[0].status, 401)
+            self.assertEqual(self.request("GET", "/setup", auth="me:pw")[0].status, 200)
+
+
 class FakeHTTPServer:
     instances = []
 
@@ -253,7 +485,7 @@ class FakeHTTPServer:
         raise KeyboardInterrupt
 
 
-class MainTests(unittest.TestCase):
+class MainTests(Isolated):
     def run_main(self, **attrs):
         FakeHTTPServer.instances.clear()
         with tempfile.TemporaryDirectory() as tmp, \
@@ -275,6 +507,17 @@ class MainTests(unittest.TestCase):
         out, addr = self.run_main(HOST="127.0.0.1", PORT=9000, PASSWORD="x", REFRESH_MINUTES=0)
         self.assertIn("http://127.0.0.1:9000 (password protected)", out)
         self.assertIn("Auto refresh off", out)
+        self.assertNotIn("to set up your name", out)
+
+    def test_start_up_before_setup(self):
+        self.clear_key()
+        out, _ = self.run_main(HOST="0.0.0.0", PORT=8080, PASSWORD="", REFRESH_MINUTES=60)
+        self.assertIn("Open http://localhost:8080 to set up your name and Garmin key", out)
+
+    def test_saved_time_zone_is_used(self):
+        with mock.patch.object(server, "apply_tz") as tz:
+            self.run_main(HOST="0.0.0.0", PORT=8080, PASSWORD="", REFRESH_MINUTES=60)
+        tz.assert_called_once_with("Europe/London")
 
     def test_runs_as_script(self):
         FakeHTTPServer.instances.clear()

@@ -16,6 +16,8 @@ any device: laptop, phone or tablet.
   this week vs recent weeks, trends (resting HR, HRV, sleep, training load),
   records and biggest days.
 - Pulls new data **every hour** by itself, plus a **Refresh** button.
+- A **start page** that asks for your name, time zone and Garmin key, and
+  checks the key with Garmin before saving it.
 - Optional **password** login.
 
 Hover over (or tap) any chart to see exact numbers.
@@ -47,16 +49,42 @@ cd my-personal-dashboard
 
 (No Git? Click **Code → Download ZIP** on GitHub, unzip it, and open a terminal in that folder.)
 
-### 3. Get your Garmin Personal API key
+### 3. Start it
 
-1. Open <https://connect.garmin.com/app/settings/personalApiToken> and log in.
-2. Click **Create Key**, accept the terms, choose **1 year** and click **Create**.
-3. Copy the key right away. Garmin shows it only once. If you lose it, delete
-   it on that page and create a new one.
+```bash
+docker compose up -d --build
+```
 
-### 4. Create your settings file
+The container restarts by itself when your computer reboots (once Docker is
+running).
 
-Copy the example file:
+### 4. Open it and fill in the start page
+
+Open **<http://localhost:8080>**. The first time, a start page asks for:
+
+1. **Your name**: shown at the top of your dashboard.
+2. **Your time zone**: filled in from your device, so "today" means your today.
+3. **Your Garmin Personal API key**: the page shows how to get one:
+   1. Open <https://connect.garmin.com/app/settings/personalApiToken> and log in.
+   2. Click **Create Key**, accept the terms, choose **1 year** and click **Create**.
+   3. Copy the key right away (Garmin shows it only once) and paste it in.
+
+Click **Connect to Garmin**. The app checks the key with Garmin first, so a
+mistyped or expired key gets a clear message right away. Then it starts
+downloading your data. The first download takes a minute or two, and the page
+reloads by itself when it's ready.
+
+To change your name, time zone or key later, click **Settings** at the top of
+the dashboard. Leave the key box empty to keep your current key.
+
+Where the key is kept: in `settings.json` inside the app's data folder (the
+`garmin-data` Docker volume), readable only by the app. It's never shown again
+or sent anywhere except to Garmin.
+
+### 5. Optional: a password and other settings
+
+Before you let any other device reach the app (step 6), set a password. Copy
+the example settings file:
 
 ```bash
 # macOS / Linux
@@ -68,30 +96,13 @@ cp .env.example .env.local
 Copy-Item .env.example .env.local
 ```
 
-Open `.env.local` in any text editor and fill it in:
+Open `.env.local` in any text editor, set `DASHBOARD_PASSWORD`, and run
+`docker compose up -d` to apply it. Your browser will then ask for it (any
+username works). The start page and Settings are behind the same password.
 
-```ini
-GARMIN_PERSONAL_API_KEY=paste-your-key-here
-DASHBOARD_PASSWORD=choose-a-password
-TZ=Asia/Kolkata
-REFRESH_MINUTES=60
-```
-
-- No spaces or quotes around the values.
-- `TZ` is your time zone, so "today" means your today. Find yours in the
-  [list of time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
-  (for example `Europe/London` or `America/New_York`).
-- `.env.local` is git-ignored and never copied into the image. Never commit it.
-
-### 5. Start it
-
-```bash
-docker compose up -d --build
-```
-
-Open **<http://localhost:8080>**. The first download takes a minute or two,
-and the page reloads by itself when it's ready. The container restarts by
-itself when your computer reboots (once Docker is running).
+You can also put `GARMIN_PERSONAL_API_KEY` and `TZ` in `.env.local` instead of
+using the start page. A key saved on the start page takes priority.
+`.env.local` is git-ignored and never copied into the image.
 
 ### 6. Open it from your phone and other devices
 
@@ -166,17 +177,18 @@ restarts and updates.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `GARMIN_PERSONAL_API_KEY` | (required) | Your Garmin Personal API key |
+| `GARMIN_PERSONAL_API_KEY` | empty | Your Garmin key, if you'd rather not use the start page (a key saved on the start page wins) |
 | `DASHBOARD_PASSWORD` | empty (no login) | Password for the web app. Set it whenever any other device can reach it. |
 | `DASHBOARD_USER` | empty (any name) | Optional login username |
-| `TZ` | `UTC` | Your time zone |
+| `TZ` | `UTC` | Your time zone (the start page's choice wins) |
 | `REFRESH_MINUTES` | `60` | How often to pull new data. `0` means only when you press Refresh. |
 | `HOST_PORT` | `8080` | Port on your computer (set it in your shell or a `.env` file if 8080 is taken) |
 
 ### When the key expires
 
-Garmin keys last up to a year. Create a new key on the same Garmin page,
-paste it into `.env.local`, and run `docker compose up -d` to apply it.
+Garmin keys last up to a year. Create a new key on the same Garmin page, then
+open **Settings** on the dashboard and paste it in. (If you keep your key in
+`.env.local` instead, update it there and run `docker compose up -d`.)
 
 ---
 
@@ -202,10 +214,10 @@ On Windows, use `py` or `python` instead of `python3`.
 
 | Problem | Fix |
 |---|---|
-| Page says "Getting your Garmin data…" for a long time | `docker compose logs` shows the error. Usually the key is missing, mistyped or expired. Fix `.env.local`, then run `docker compose up -d`. |
+| Page says "Getting your Garmin data…" for a long time | `docker compose logs` shows the error. Usually the key is mistyped or expired: open `/setup` (the **Settings** button) and paste a new one. |
 | "Garmin refused the key (HTTP 401)" | The key is wrong or expired. Create a new one (see above). |
 | Port 8080 already in use | Run `HOST_PORT=8090 docker compose up -d` and open `http://localhost:8090`. |
-| "Today" shows the wrong day | Set `TZ` in `.env.local`, then run `docker compose up -d`. |
+| "Today" shows the wrong day | Fix your time zone in **Settings**. |
 | `refresh.sh: bad interpreter` after cloning on Windows | The repo's `.gitattributes` keeps LF endings. Re-clone, or run `git add --renormalize .`. |
 | No HRV or sleep data | Wear your watch to bed. Garmin needs about 3 weeks of nights to set an HRV baseline. |
 
@@ -218,8 +230,10 @@ my-personal-dashboard/
 │   ├── garmin_api.py     Garmin Personal API client (token, retries)
 │   ├── pull.py           downloads your data into data/
 │   ├── build.py          turns data/ into dashboard.html
+│   ├── settings.py       your name, time zone and key from the start page
 │   └── test_connection.py  checks your key
 ├── tests/                offline test suite (Python + dashboard JavaScript)
+├── .github/              pull request checks and Dependabot
 ├── Dockerfile, compose.yaml
 ├── refresh.sh, refresh.bat, run_tests.sh, run_tests.bat
 ├── .env.example          copy to .env.local (git-ignored) for your key and settings
@@ -229,8 +243,9 @@ my-personal-dashboard/
 
 | File | What it does |
 |---|---|
-| `src/server.py` | The web app. Serves the dashboard, runs `pull.py` + `build.py` on a timer and when you press Refresh, and asks for a login if a password is set. Routes: `/`, `POST /refresh`, `/status`, `/healthz`. |
-| `src/garmin_api.py` | API client. Swaps the key for a 24-hour token (cached and renewed after 20 hours) and retries on 429/502/503. |
+| `src/server.py` | The web app. Serves the dashboard and the start page, runs `pull.py` + `build.py` on a timer and when you press Refresh, and asks for a login if a password is set. Rejects form posts from other websites. Routes: `/`, `/setup`, `POST /setup`, `POST /refresh`, `/status`, `/healthz`. |
+| `src/garmin_api.py` | API client. Finds the key (start page, then environment, then `.env.local`), swaps it for a 24-hour token (cached and renewed after 20 hours) and retries on 429/502/503. |
+| `src/settings.py` | Saves the start page's name, time zone and key in `data/settings.json`, readable only by your user account. |
 | `src/pull.py` | Downloads activities, daily summaries, sleep, HRV, weight, fitness age, heart rate zones and today's activity detail. Only fetches what is new. |
 | `src/build.py` | Turns the data into one self-contained `dashboard.html` (data, styles and SVG charts inline; nothing loaded from the internet). |
 | `src/test_connection.py` | Lists your 5 latest activities to check the key. |
@@ -278,16 +293,47 @@ What's covered:
 The JavaScript tests need Node.js 22+ and are skipped without it. Set
 `JS_COVERAGE=1` to print the JavaScript coverage table.
 
-GitHub Actions (`.github/workflows/tests.yml`) runs the whole suite on
-**Windows, macOS and Linux** with Python 3.10 and 3.13 on every push. It also
-builds the Docker image and checks that it starts, passes its health check and
-runs as a regular (not admin) user.
+The first run also installs [ruff](https://docs.astral.sh/ruff/), the Python
+linter the PR checks use. To lint locally: `.venv-test/bin/python -m ruff check src tests`.
+
+## Pull request checks
+
+Every pull request into `main` runs these checks on GitHub
+(`.github/workflows/pr-checks.yml`). Merge only when all of them are green.
+
+| Check | What it does | Fails when | How to fix a failure |
+|---|---|---|---|
+| **Tests** | All tests on Windows, macOS and Linux, with Python 3.10 and 3.13 | A test fails, or Python coverage drops below 100% | Run `./run_tests.sh` and fix what it reports |
+| **Lint** | `ruff` checks the Python, `hadolint` checks the Dockerfile | Either reports a problem | The check's log names the file, line and rule |
+| **SonarCloud** | Bugs, vulnerabilities, security hotspots and code quality, with test coverage | Sonar's quality gate fails | Open the SonarCloud link in the check's log |
+| **CodeQL** | GitHub's security scan of the Python, JavaScript and the workflow file | A security problem is found | See the repo's Security tab, Code scanning |
+| **Secret scan** | `gitleaks` looks for keys, tokens and passwords in every commit | Anything that looks like a secret | Remove it, then create a new key in Garmin Connect: once pushed, treat it as leaked |
+| **Dependency review** | Checks dependencies a PR adds or updates | One has a known vulnerability | Use a fixed version |
+| **App build, run and image scan** | Builds the Docker image, starts a fresh install and checks the health check, the start page, the cross-site form block, the non-root user and that no `.env.local` is inside. Then `trivy` scans the image | The app doesn't start or behave, or the image has a high or critical vulnerability that has a fix | Usually rebuilding on the newest base image fixes the scan; Dependabot opens that PR |
+
+Dependabot (`.github/dependabot.yml`) opens weekly PRs that update the CI tools,
+the Docker base image and the test tools. Each runs these checks too.
+
+One-time setup on GitHub and SonarCloud:
+
+1. **SonarCloud.** Sign in at [sonarcloud.io](https://sonarcloud.io) with GitHub
+   and import this repo. Under Administration, Analysis Method, turn off
+   *Automatic Analysis*. Check that the organization and project keys match
+   `sonar-project.properties`. Create a token (My Account, Security) and save it
+   in GitHub under **Settings, Secrets and variables, Actions** as
+   `SONAR_TOKEN`. Until then the SonarCloud check fails with a message saying so.
+2. **Block merging until the checks pass.** Under **Settings, Rules, Rulesets**,
+   add a rule for `main` that requires a pull request and requires the checks
+   above to pass.
+3. **Optional, free:** under **Settings, Code security**, turn on secret
+   scanning, push protection and Dependabot alerts.
 
 ## Privacy
 
 - Read-only: the Personal API can't change anything in your Garmin account.
-- Your key is only in `.env.local`, which is git-ignored and Docker-ignored.
-  It's passed to the container at run time and is never built into the image.
+- Your key lives in `data/settings.json` (from the start page) or `.env.local`.
+  Both are git-ignored and Docker-ignored, never built into the image, and
+  never shown in a page or log.
 - Your data stays in the `garmin-data` volume (or `data/` when run without
   Docker). The only outside calls are read-only requests to Garmin.
 - Set `DASHBOARD_PASSWORD` before letting any other device reach the app.

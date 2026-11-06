@@ -12,3 +12,7 @@ __pycache__/
 tests/
 .github/
 .coverage*
+coverage.xml
+ruff.toml
+.hadolint.yaml
+sonar-project.properties

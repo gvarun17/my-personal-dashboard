@@ -12,6 +12,7 @@ from unittest import mock
 import build
 import garmin_api
 import pull
+import settings
 
 TODAY = date.today()
 ISO = "%Y-%m-%d"
@@ -55,6 +56,7 @@ class TempDataCase(unittest.TestCase):
             (pull, "DATA", self.data),
             (build, "DATA", self.data),
             (build, "OUT", self.out),
+            (settings, "DATA", self.data),
         ):
             p = mock.patch.object(target, attr, value)
             p.start()
