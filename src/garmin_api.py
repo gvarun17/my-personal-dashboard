@@ -60,12 +60,12 @@ def check_key(key):
 
 def _new_token(key=None):
     key = key or _read_key()
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310 - fixed https:// Garmin URL
         TOKEN_URL, data=b"", method="POST",
         headers={"Authorization": f"ApiKey {key}", "User-Agent": UA},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 - fixed https:// Garmin URL
             token = r.read().decode().strip().strip('"')
     except urllib.error.HTTPError as e:
         e.close()
@@ -105,13 +105,13 @@ def get(path, retries=4):
     token = get_token()
     renewed = False
     for attempt in range(retries + 1):
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310 - fixed https:// Garmin URL
             BASE + path,
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
                      "User-Agent": UA},
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with urllib.request.urlopen(req, timeout=60) as r:  # noqa: S310 - fixed https:// Garmin URL
                 body = r.read()
             return json.loads(body) if body.strip() else None
         except urllib.error.HTTPError as e:

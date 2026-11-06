@@ -1,0 +1,6 @@
+# Dockerfile lint settings (hadolint).
+ignored:
+  # "Pin apt package versions": tzdata changes several times a year and Debian
+  # removes old versions, so pinning would break builds. The base image tag is
+  # pinned instead, and Trivy scans the packages for vulnerabilities.
+  - DL3008

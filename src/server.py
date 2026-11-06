@@ -55,7 +55,7 @@ def load_env_file():
 load_env_file()
 
 PORT = int(os.environ.get("PORT") or 8080)
-HOST = os.environ.get("HOST") or "0.0.0.0"
+HOST = os.environ.get("HOST") or "0.0.0.0"  # noqa: S104 - needed in Docker; compose.yaml limits it to this computer
 REFRESH_MINUTES = float(os.environ.get("REFRESH_MINUTES") or 60)
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD") or ""
 USER = os.environ.get("DASHBOARD_USER") or ""
@@ -115,11 +115,11 @@ class Refresher:
         try:
             for cmd in ([sys.executable, "pull.py"] + (["--full"] if full else []),
                         [sys.executable, "build.py"]):
-                r = subprocess.run(cmd, cwd=SRC, env=child_env(), capture_output=True, text=True,
+                r = subprocess.run(cmd, cwd=SRC, env=child_env(), capture_output=True, text=True,  # noqa: S603 - runs this app's own scripts
                                    encoding="utf-8", errors="replace", timeout=1800)
                 if r.returncode != 0:
-                    lines = [l.strip() for l in (r.stdout + r.stderr).replace("\r", "\n").splitlines() if l.strip()]
-                    reason = next((l for l in reversed(lines) if l.startswith("Stopped")), lines[-1] if lines else None)
+                    lines = [ln.strip() for ln in (r.stdout + r.stderr).replace("\r", "\n").splitlines() if ln.strip()]
+                    reason = next((ln for ln in reversed(lines) if ln.startswith("Stopped")), lines[-1] if lines else None)
                     raise RuntimeError(reason or f"{cmd[1]} failed")
             self.last_ok = datetime.now().isoformat(timespec="seconds")
             self.last_error = None
@@ -350,7 +350,8 @@ class Handler(BaseHTTPRequestHandler):
         if not 0 <= length <= 20000:
             return self._send(413, "Too large", "text/plain; charset=utf-8")
         form = parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
-        field = lambda k: (form.get(k) or [""])[0]
+        def field(k):
+            return (form.get(k) or [""])[0]
         name, tz, key = settings.clean_name(field("name")), settings.normalize_tz(field("tz")), settings.clean_key(field("key"))
         error = ""
         if not name:
@@ -378,7 +379,7 @@ def main():
     apply_tz(settings.load().get("tz"))
     threading.Thread(target=scheduler, daemon=True).start()
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    where = "localhost" if HOST in ("0.0.0.0", "::") else HOST
+    where = "localhost" if HOST in ("0.0.0.0", "::") else HOST  # noqa: S104 - just a comparison
     log(f"Dashboard running at http://{where}:{PORT}"
         + (" (password protected)" if PASSWORD else " (no password set)"))
     log("Auto refresh every %g minutes" % REFRESH_MINUTES if REFRESH_MINUTES > 0 else "Auto refresh off")

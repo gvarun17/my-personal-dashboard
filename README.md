@@ -233,6 +233,7 @@ my-personal-dashboard/
 │   ├── settings.py       your name, time zone and key from the start page
 │   └── test_connection.py  checks your key
 ├── tests/                offline test suite (Python + dashboard JavaScript)
+├── .github/              pull request checks and Dependabot
 ├── Dockerfile, compose.yaml
 ├── refresh.sh, refresh.bat, run_tests.sh, run_tests.bat
 ├── .env.example          copy to .env.local (git-ignored) for your key and settings
@@ -292,10 +293,40 @@ What's covered:
 The JavaScript tests need Node.js 22+ and are skipped without it. Set
 `JS_COVERAGE=1` to print the JavaScript coverage table.
 
-GitHub Actions (`.github/workflows/tests.yml`) runs the whole suite on
-**Windows, macOS and Linux** with Python 3.10 and 3.13 on every push. It also
-builds the Docker image and checks that it starts, passes its health check and
-runs as a regular (not admin) user.
+The first run also installs [ruff](https://docs.astral.sh/ruff/), the Python
+linter the PR checks use. To lint locally: `.venv-test/bin/python -m ruff check src tests`.
+
+## Pull request checks
+
+Every pull request into `main` runs these checks on GitHub
+(`.github/workflows/pr-checks.yml`). Merge only when all of them are green.
+
+| Check | What it does | Fails when | How to fix a failure |
+|---|---|---|---|
+| **Tests** | All tests on Windows, macOS and Linux, with Python 3.10 and 3.13 | A test fails, or Python coverage drops below 100% | Run `./run_tests.sh` and fix what it reports |
+| **Lint** | `ruff` checks the Python, `hadolint` checks the Dockerfile | Either reports a problem | The check's log names the file, line and rule |
+| **SonarCloud** | Bugs, vulnerabilities, security hotspots and code quality, with test coverage | Sonar's quality gate fails | Open the SonarCloud link in the check's log |
+| **CodeQL** | GitHub's security scan of the Python, JavaScript and the workflow file | A security problem is found | See the repo's Security tab, Code scanning |
+| **Secret scan** | `gitleaks` looks for keys, tokens and passwords in every commit | Anything that looks like a secret | Remove it, then create a new key in Garmin Connect: once pushed, treat it as leaked |
+| **Dependency review** | Checks dependencies a PR adds or updates | One has a known vulnerability | Use a fixed version |
+| **App build, run and image scan** | Builds the Docker image, starts a fresh install and checks the health check, the start page, the cross-site form block, the non-root user and that no `.env.local` is inside. Then `trivy` scans the image | The app doesn't start or behave, or the image has a high or critical vulnerability that has a fix | Usually rebuilding on the newest base image fixes the scan; Dependabot opens that PR |
+
+Dependabot (`.github/dependabot.yml`) opens weekly PRs that update the CI tools,
+the Docker base image and the test tools. Each runs these checks too.
+
+One-time setup on GitHub and SonarCloud:
+
+1. **SonarCloud.** Sign in at [sonarcloud.io](https://sonarcloud.io) with GitHub
+   and import this repo. Under Administration, Analysis Method, turn off
+   *Automatic Analysis*. Check that the organization and project keys match
+   `sonar-project.properties`. Create a token (My Account, Security) and save it
+   in GitHub under **Settings, Secrets and variables, Actions** as
+   `SONAR_TOKEN`. Until then the SonarCloud check fails with a message saying so.
+2. **Block merging until the checks pass.** Under **Settings, Rules, Rulesets**,
+   add a rule for `main` that requires a pull request and requires the checks
+   above to pass.
+3. **Optional, free:** under **Settings, Code security**, turn on secret
+   scanning, push protection and Dependabot alerts.
 
 ## Privacy
 

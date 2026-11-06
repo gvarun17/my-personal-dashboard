@@ -22,11 +22,11 @@ ENV PYTHONUNBUFFERED=1 \
     REFRESH_MINUTES=60 \
     TZ=UTC
 
-USER app
+USER 10001
 VOLUME ["/data"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s --retries=3 \
-  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT','8080'), timeout=4)"
+  CMD ["python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT','8080'), timeout=4)"]
 
 CMD ["python", "src/server.py"]
