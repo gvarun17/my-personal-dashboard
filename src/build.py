@@ -10,6 +10,8 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 
+import settings
+
 ROOT = Path(__file__).resolve().parent.parent   # project folder (holds data/ and dashboard.html)
 DATA = Path(os.environ.get("GARMIN_DATA_DIR") or ROOT / "data")
 OUT = Path(os.environ.get("DASHBOARD_OUT") or ROOT / "dashboard.html")
@@ -133,6 +135,7 @@ def build():
         "fitAge": r(fit.get("fitnessAge"), 1), "age": fit.get("chronologicalAge"),
         "zones": [z.get(f"zone{i}Floor") for i in range(1, 6)] + [z.get("maxHeartRateUsed")],
         "start": state.get("start"),
+        "name": settings.public().get("name") or "",
         "td": td,
     }
     blob = json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
@@ -310,7 +313,8 @@ tr.tot td{font-weight:600;border-bottom:0}
 .hmlegend{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin-top:10px;flex-wrap:wrap}
 .hmlegend i{width:12px;height:12px;border-radius:3px;display:inline-block}
 footer{color:var(--muted);font-size:12px;margin-top:30px;text-align:center}
-.hdr-r{display:flex;align-items:center;gap:12px}
+.hdr-r{display:flex;align-items:center;gap:10px}
+a.rbtn{text-decoration:none}a.rbtn[hidden]{display:none}
 .rbtn{all:unset;cursor:pointer;font-size:13px;font-weight:600;padding:7px 14px;border-radius:10px;background:var(--raise);border:1px solid var(--border);color:var(--ink)}
 .rbtn:hover{background:#2c2c2a}.rbtn:focus-visible{outline:2px solid var(--accent)}
 .rbtn[disabled]{opacity:.6;cursor:default}
@@ -369,10 +373,10 @@ footer{color:var(--muted);font-size:12px;margin-top:30px;text-align:center}
 <div class="wrap">
   <header>
     <div>
-      <div class="eyebrow">Training log</div>
+      <div class="eyebrow" id="who">Training log</div>
       <h1>Building the engine</h1>
     </div>
-    <div class="hdr-r"><div class="meta" id="meta"></div><button id="refreshBtn" class="rbtn" hidden>Refresh</button></div>
+    <div class="hdr-r"><div class="meta" id="meta"></div><a id="settingsLink" class="rbtn" href="setup" hidden>Settings</a><button id="refreshBtn" class="rbtn" hidden>Refresh</button></div>
   </header>
 
   <section class="card today" id="today"></section>
@@ -1087,6 +1091,7 @@ function actCharts(root, a){
 function renderAll(){
   renderToday(); renderHero(); renderTiles(); renderWeeks(); renderIM(); renderHeat(); renderTrends(); renderZones(); renderRecords();
 }
+if (D.name){ document.getElementById('who').textContent = D.name + "'s training log"; document.title = D.name + "'s training"; }
 document.getElementById('meta').innerHTML = `Updated ${esc(D.built)}<br>${D.acts.length} activities · ${D.days.length} days · ${D.sleep.length} nights`;
 document.getElementById('foot').innerHTML = `Data from Garmin Connect, read-only, stored on this computer only.${D.fitAge?` · Garmin fitness age ${n1(D.fitAge)}${D.age?` (actual ${D.age})`:''}`:''}${D.weight.length?` · Last weigh-in ${n1(D.weight[D.weight.length-1].kg)} kg`:''}`;
 function seg(id, attr, onPick){
@@ -1101,6 +1106,7 @@ renderAll();
 // Refresh button: only when served by server.py (not when opened as a file).
 (function(){
   if (!location.protocol.startsWith('http')) return;
+  document.getElementById('settingsLink').hidden = false;
   const b = document.getElementById('refreshBtn'); b.hidden = false;
   const wait = ms => new Promise(r => setTimeout(r, ms));
   async function poll(before){

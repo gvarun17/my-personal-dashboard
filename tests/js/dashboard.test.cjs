@@ -183,6 +183,9 @@ for (const sc of manifest) {
       for (const [id, want] of sc.expect || []) {
         assert.match(text(page, id), new RegExp(want), `${id} should contain ${want}`);
       }
+      for (const [id, want] of sc.expectText || []) {
+        assert.strictEqual(page.byId[id].textContent, want);
+      }
       assert.ok(!/NaN|undefined/.test(text(page, 'tiles')), 'tiles show NaN/undefined');
       assert.ok(!/NaN|undefined/.test(text(page, 'today')), 'today shows NaN/undefined');
 
@@ -222,6 +225,7 @@ for (const sc of manifest) {
       const btn = page.byId.refreshBtn;
       if (sc.protocol.startsWith('http')) {
         assert.strictEqual(btn.hidden, false);
+        assert.strictEqual(page.byId.settingsLink.hidden, false, 'Settings link should show in the web app');
         await settle();
         for (const fn of btn.listeners.click || []) await fn();
         await settle(60);

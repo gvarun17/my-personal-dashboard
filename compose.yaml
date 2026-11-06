@@ -5,9 +5,11 @@ services:
     image: my-personal-dashboard:latest
     container_name: garmin-dashboard
     restart: unless-stopped
-    # Your key, password and time zone come from .env.local (never committed).
+    # Optional: settings in .env.local (never committed). Without it, open the
+    # app and the start page asks for your name, time zone and Garmin key.
     env_file:
-      - .env.local
+      - path: .env.local
+        required: false
     environment:
       GARMIN_DATA_DIR: /data
     ports:

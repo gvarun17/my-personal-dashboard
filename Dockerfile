@@ -2,9 +2,11 @@
 # Builds for amd64 and arm64 (Intel/AMD PCs, Apple Silicon, Raspberry Pi 4/5).
 FROM python:3.12-slim
 
-# tzdata so TZ=Asia/Kolkata (etc.) gives the right "today"
+# tzdata so TZ=Asia/Kolkata (etc.) gives the right "today"; tzdata-legacy adds
+# the older names some browsers still report (Asia/Calcutta, US/Eastern, ...)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata \
+ && (apt-get install -y --no-install-recommends tzdata tzdata-legacy \
+     || apt-get install -y --no-install-recommends tzdata) \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 app \
  && mkdir -p /data && chown app:app /data
