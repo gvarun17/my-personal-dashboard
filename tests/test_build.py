@@ -11,7 +11,7 @@ from unittest import mock
 import build
 from tests.helpers import TODAY, TempDataCase, ds, make_activity, write_dataset
 
-ROOT = Path(__file__).resolve().parent.parent
+SRC = Path(__file__).resolve().parent.parent / "src"
 
 
 def payload_of(html):
@@ -136,7 +136,7 @@ class BuildTests(TempDataCase):
         data = self.root / "other-data"
         with mock.patch.dict(os.environ, {"GARMIN_DATA_DIR": str(data), "DASHBOARD_OUT": str(target)}), \
                 mock.patch("sys.stdout", new_callable=io.StringIO):
-            runpy.run_path(str(ROOT / "build.py"), run_name="__main__")
+            runpy.run_path(str(SRC / "build.py"), run_name="__main__")
         self.assertTrue(target.exists())
         self.assertFalse(target.with_suffix(".tmp").exists())
 

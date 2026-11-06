@@ -1,11 +1,7 @@
 [run]
 branch = True
 source =
-    garmin_api
-    pull
-    build
-    server
-    test_connection
+    src
 
 [report]
 show_missing = True

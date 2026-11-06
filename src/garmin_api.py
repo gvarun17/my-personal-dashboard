@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent   # project folder (holds .env.local and data/)
 DATA = Path(os.environ.get("GARMIN_DATA_DIR") or ROOT / "data")
 ENV_FILE = ROOT / ".env.local"
 TOKEN_FILE = DATA / "token.json"

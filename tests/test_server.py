@@ -14,7 +14,7 @@ from unittest import mock
 
 import server
 
-ROOT = Path(__file__).resolve().parent.parent
+SRC = Path(__file__).resolve().parent.parent / "src"
 
 
 class EnvFileTests(unittest.TestCase):
@@ -283,7 +283,7 @@ class MainTests(unittest.TestCase):
                 mock.patch("http.server.ThreadingHTTPServer", FakeHTTPServer), \
                 mock.patch("threading.Thread"), \
                 mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            runpy.run_path(str(ROOT / "server.py"), run_name="__main__")
+            runpy.run_path(str(SRC / "server.py"), run_name="__main__")
         self.assertEqual(FakeHTTPServer.instances[0].addr, ("0.0.0.0", 8123))
         self.assertIn("Dashboard running", out.getvalue())
 

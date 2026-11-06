@@ -1,6 +1,6 @@
 """Serve the dashboard as a small web app (standard library only).
 
-    python3 server.py
+    python3 src/server.py
 
 - GET  /           the dashboard (rebuilt after every refresh)
 - POST /refresh    pull new Garmin data and rebuild, in the background
@@ -28,7 +28,8 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+SRC = Path(__file__).resolve().parent           # where pull.py and build.py live
+ROOT = SRC.parent                               # project folder (holds .env.local and data/)
 
 
 def load_env_file():
@@ -91,7 +92,7 @@ class Refresher:
         try:
             for cmd in ([sys.executable, "pull.py"] + (["--full"] if full else []),
                         [sys.executable, "build.py"]):
-                r = subprocess.run(cmd, cwd=ROOT, env=CHILD_ENV, capture_output=True, text=True,
+                r = subprocess.run(cmd, cwd=SRC, env=CHILD_ENV, capture_output=True, text=True,
                                    encoding="utf-8", errors="replace", timeout=1800)
                 if r.returncode != 0:
                     lines = [l.strip() for l in (r.stdout + r.stderr).replace("\r", "\n").splitlines() if l.strip()]

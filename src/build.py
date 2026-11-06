@@ -1,6 +1,6 @@
 """Build dashboard.html from the JSON files in data/.
 
-    python3 build.py
+    python3 src/build.py
 
 Writes one self-contained file: the data, styles and charts are all inside it,
 so it opens in any browser with no server and nothing loaded from the internet.
@@ -10,7 +10,7 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent   # project folder (holds data/ and dashboard.html)
 DATA = Path(os.environ.get("GARMIN_DATA_DIR") or ROOT / "data")
 OUT = Path(os.environ.get("DASHBOARD_OUT") or ROOT / "dashboard.html")
 

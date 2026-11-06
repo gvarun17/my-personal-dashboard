@@ -11,7 +11,7 @@ import pull
 from tests.helpers import (TODAY, FakeGarmin, TempDataCase, ds, make_activities, make_activity,
                            make_details, make_summary)
 
-ROOT = Path(__file__).resolve().parent.parent
+SRC = Path(__file__).resolve().parent.parent / "src"
 HTTP500 = garmin_api.HTTPStatus(500)
 
 
@@ -350,7 +350,7 @@ class ScriptTests(TempDataCase):
         with mock.patch.object(garmin_api, "get", side_effect=side_effect), \
                 mock.patch("sys.argv", ["pull.py"]), quiet() as out:
             with self.assertRaises(SystemExit) as cm:
-                runpy.run_path(str(ROOT / "pull.py"), run_name="__main__")
+                runpy.run_path(str(SRC / "pull.py"), run_name="__main__")
         self.assertEqual(cm.exception.code, 1)
         return out.getvalue()
 
@@ -362,7 +362,7 @@ class ScriptTests(TempDataCase):
 
     def test_runs_as_script(self):
         with mock.patch.object(garmin_api, "get", FakeGarmin()), mock.patch("sys.argv", ["pull.py"]), quiet() as out:
-            runpy.run_path(str(ROOT / "pull.py"), run_name="__main__")
+            runpy.run_path(str(SRC / "pull.py"), run_name="__main__")
         self.assertIn("Done.", out.getvalue())
 
 

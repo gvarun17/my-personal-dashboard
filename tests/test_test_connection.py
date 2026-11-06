@@ -8,7 +8,7 @@ from unittest import mock
 import garmin_api
 from tests.helpers import make_activity
 
-SCRIPT = str(Path(__file__).resolve().parent.parent / "test_connection.py")
+SCRIPT = str(Path(__file__).resolve().parent.parent / "src" / "test_connection.py")
 
 
 class ConnectionCheckTests(unittest.TestCase):

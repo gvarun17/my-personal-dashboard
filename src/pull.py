@@ -1,7 +1,7 @@
 """Download your Garmin history into data/ as JSON.
 
-    python3 pull.py          # last 12 months (first run), then only what's new
-    python3 pull.py --full   # your whole history
+    python3 src/pull.py          # last 12 months (first run), then only what's new
+    python3 src/pull.py --full   # your whole history
 
 Re-running only fetches what is new (plus the last few days, which Garmin
 may still be filling in).

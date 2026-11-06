@@ -152,7 +152,7 @@ Run these in the project folder.
 | See if it's running | `docker compose ps` |
 | See what it's doing | `docker compose logs -f` |
 | Refresh now | Press **Refresh** on the dashboard |
-| Pull your whole history (once) | `docker compose exec dashboard python pull.py --full` then press **Refresh** |
+| Pull your whole history (once) | `docker compose exec dashboard python src/pull.py --full` then press **Refresh** |
 | Stop | `docker compose down` |
 | Start again | `docker compose up -d` |
 | Update to the latest code | `git pull` then `docker compose up -d --build` |
@@ -185,8 +185,11 @@ paste it into `.env.local`, and run `docker compose up -d` to apply it.
 You need Python 3.10 or newer (standard library only, nothing to install).
 
 ```bash
+# Check your key: lists your 5 latest activities
+python3 src/test_connection.py
+
 # Web app at http://localhost:8080, auto refresh and the Refresh button
-python3 server.py
+python3 src/server.py
 
 # Or a one-off static file you open directly (no server)
 ./refresh.sh            # macOS / Linux
@@ -208,15 +211,35 @@ On Windows, use `py` or `python` instead of `python3`.
 
 ## How it works
 
+```
+my-personal-dashboard/
+├── src/                  the app (Python standard library only)
+│   ├── server.py         web app: dashboard, timed + button refresh, optional login
+│   ├── garmin_api.py     Garmin Personal API client (token, retries)
+│   ├── pull.py           downloads your data into data/
+│   ├── build.py          turns data/ into dashboard.html
+│   └── test_connection.py  checks your key
+├── tests/                offline test suite (Python + dashboard JavaScript)
+├── Dockerfile, compose.yaml
+├── refresh.sh, refresh.bat, run_tests.sh, run_tests.bat
+├── .env.example          copy to .env.local (git-ignored) for your key and settings
+├── data/                 your downloaded data (git-ignored, created on first run)
+└── dashboard.html        the built dashboard (git-ignored)
+```
+
 | File | What it does |
 |---|---|
-| `server.py` | The web app. Serves the dashboard, runs `pull.py` + `build.py` on a timer and when you press Refresh, and asks for a login if a password is set. Routes: `/`, `POST /refresh`, `/status`, `/healthz`. |
-| `garmin_api.py` | API client. Swaps the key for a 24-hour token (cached and renewed after 20 hours) and retries on 429/502/503. |
-| `pull.py` | Downloads activities, daily summaries, sleep, HRV, weight, fitness age, heart rate zones and today's activity detail. Only fetches what is new. |
-| `build.py` | Turns the data into one self-contained `dashboard.html` (data, styles and SVG charts inline; nothing loaded from the internet). |
-| `Dockerfile`, `compose.yaml` | The container: `python:3.12-slim`, runs as a non-root user, data in the `/data` volume, health check on `/healthz`. |
+| `src/server.py` | The web app. Serves the dashboard, runs `pull.py` + `build.py` on a timer and when you press Refresh, and asks for a login if a password is set. Routes: `/`, `POST /refresh`, `/status`, `/healthz`. |
+| `src/garmin_api.py` | API client. Swaps the key for a 24-hour token (cached and renewed after 20 hours) and retries on 429/502/503. |
+| `src/pull.py` | Downloads activities, daily summaries, sleep, HRV, weight, fitness age, heart rate zones and today's activity detail. Only fetches what is new. |
+| `src/build.py` | Turns the data into one self-contained `dashboard.html` (data, styles and SVG charts inline; nothing loaded from the internet). |
+| `src/test_connection.py` | Lists your 5 latest activities to check the key. |
+| `Dockerfile`, `compose.yaml` | The container: `python:3.12-slim`, runs as a non-root user, code in `/app/src`, data in the `/data` volume, health check on `/healthz`. |
 | `refresh.sh`, `refresh.bat` | Pull + build + open, without the web app. |
-| `test_connection.py` | Lists your 5 latest activities to check the key. |
+
+The scripts work out their paths from where the files are, so you can run
+them from any folder. `.env.local`, `data/` and `dashboard.html` always live in
+the project folder, next to `src/`.
 
 Notes on Garmin's Personal API:
 
@@ -249,7 +272,7 @@ What's covered:
 
 | Area | Tests | Coverage |
 |---|---|---|
-| Python: `garmin_api.py`, `pull.py`, `build.py`, `server.py`, `test_connection.py` | `tests/test_*.py` (unit and real HTTP requests) | **100%** of lines and branches (enforced) |
+| Python: everything in `src/` | `tests/test_*.py` (unit and real HTTP requests) | **100%** of lines and branches (enforced) |
 | Dashboard JavaScript (charts, hovers, buttons, refresh) | `tests/test_dashboard_js.py` and `tests/js/dashboard.test.cjs` run it in Node.js with a simulated page, across 6 datasets (full, empty, rest day, long ride, sparse, phone/tablet/desktop) | **100%** of lines and functions, 93%+ of branches (enforced) |
 
 The JavaScript tests need Node.js 22+ and are skipped without it. Set

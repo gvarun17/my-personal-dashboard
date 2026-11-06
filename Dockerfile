@@ -10,7 +10,7 @@ RUN apt-get update \
  && mkdir -p /data && chown app:app /data
 
 WORKDIR /app
-COPY --chown=app:app garmin_api.py pull.py build.py server.py ./
+COPY --chown=app:app src/ ./src/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -27,4 +27,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('PORT','8080'), timeout=4)"
 
-CMD ["python", "server.py"]
+CMD ["python", "src/server.py"]
