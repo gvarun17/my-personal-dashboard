@@ -1,0 +1,105 @@
+"""Tiny read-only client for Garmin's Personal API (standard library only).
+
+The API key is read from .env.local and is never printed or logged.
+"""
+import json
+import os
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+DATA = ROOT / "data"
+ENV_FILE = ROOT / ".env.local"
+TOKEN_FILE = DATA / "token.json"
+BASE = "https://personal.connectapi.garmin.com"
+TOKEN_URL = BASE + "/personalapitoken-service/personal-api/personal-api-key/token"
+TOKEN_MAX_AGE = 20 * 3600  # tokens last 24h; renew after 20h
+UA = "garmin-dashboard/1.0"
+
+
+class GarminError(Exception):
+    pass
+
+
+def _read_key():
+    if not ENV_FILE.exists():
+        raise GarminError(f"{ENV_FILE} is missing.")
+    for line in ENV_FILE.read_text().splitlines():
+        if line.startswith("GARMIN_PERSONAL_API_KEY="):
+            key = line.split("=", 1)[1].strip()
+            if key:
+                return key
+    raise GarminError(f"GARMIN_PERSONAL_API_KEY is empty in {ENV_FILE}.")
+
+
+def _new_token():
+    key = _read_key()
+    req = urllib.request.Request(
+        TOKEN_URL, data=b"", method="POST",
+        headers={"Authorization": f"ApiKey {key}", "User-Agent": UA},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            token = r.read().decode().strip().strip('"')
+    except urllib.error.HTTPError as e:
+        raise GarminError(
+            f"Garmin refused the key (HTTP {e.code}). It may be missing, "
+            f"mistyped or expired: check {ENV_FILE}."
+        ) from None
+    except urllib.error.URLError as e:
+        raise GarminError(f"Could not reach Garmin: {e.reason}") from None
+    if not token:
+        raise GarminError("Garmin returned an empty token.")
+    DATA.mkdir(exist_ok=True)
+    TOKEN_FILE.write_text(json.dumps({"token": token, "fetched_at": time.time()}))
+    os.chmod(TOKEN_FILE, 0o600)
+    return token
+
+
+def get_token(force=False):
+    if not force and TOKEN_FILE.exists():
+        try:
+            saved = json.loads(TOKEN_FILE.read_text())
+            if time.time() - saved["fetched_at"] < TOKEN_MAX_AGE and saved["token"]:
+                return saved["token"]
+        except (ValueError, KeyError):
+            pass
+    return _new_token()
+
+
+class HTTPStatus(GarminError):
+    def __init__(self, code):
+        super().__init__(f"HTTP {code}")
+        self.code = code
+
+
+def get(path, retries=4):
+    """GET a path and return parsed JSON (or None for an empty body)."""
+    token = get_token()
+    renewed = False
+    for attempt in range(retries + 1):
+        req = urllib.request.Request(
+            BASE + path,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+                     "User-Agent": UA},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                body = r.read()
+            return json.loads(body) if body.strip() else None
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and not renewed:
+                token, renewed = get_token(force=True), True
+                continue
+            if e.code in (429, 502, 503) and attempt < retries:
+                time.sleep(3 * (attempt + 1))
+                continue
+            raise HTTPStatus(e.code) from None
+        except urllib.error.URLError as e:
+            if attempt < retries:
+                time.sleep(3 * (attempt + 1))
+                continue
+            raise GarminError(f"Could not reach Garmin: {e.reason}") from None
+    raise GarminError("Gave up after retries.")
