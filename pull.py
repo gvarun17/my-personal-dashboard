@@ -15,7 +15,7 @@ from garmin_api import DATA, GarminError, HTTPStatus, get
 
 PAUSE = 0.3          # seconds between calls
 REFETCH_DAYS = 3     # always refresh the last few days
-STATE_FILE = DATA / "state.json"
+MAX_SKIPS = 5        # give up on the activity list after this many failures in a row
 ISO = "%Y-%m-%d"
 
 
@@ -59,7 +59,7 @@ def pull_activities(start, backfill):
     first activity we already have."""
     acts = load("activities.json", {})
     known = set(acts)
-    new, page = 0, 0
+    new, page, skipped = 0, 0, 0
     total_days = max((date.today() - start).days, 1)
     while True:
         batch = None
@@ -71,9 +71,14 @@ def pull_activities(start, backfill):
                 if e.code != 500:
                     raise
         if batch is None:
+            skipped += 1
+            if skipped >= MAX_SKIPS:      # Garmin keeps failing: stop instead of looping forever
+                print(f"\n  ! Garmin could not return activities from position {page}; stopping here")
+                break
             print(f"\n  ! skipped an activity Garmin could not return (position {page})")
             page += 1
             continue
+        skipped = 0
         time.sleep(PAUSE)
         stop = False
         for a in batch:
@@ -89,7 +94,7 @@ def pull_activities(start, backfill):
                 new += 1
             acts[aid] = a
         page += len(batch)
-        oldest = batch[-1].get("startTimeLocal", "")[:10] if batch else d2s(start)
+        oldest = (batch[-1].get("startTimeLocal") or "")[:10] if batch else d2s(start)
         bar("Activities", (date.today() - s2d(oldest)).days if oldest else total_days, total_days,
             f"{len(acts)} total, back to {oldest}")
         if stop or len(batch) < limit:
@@ -234,14 +239,14 @@ def pull_today(today, acts):
             local = datetime.fromtimestamp((ts + off) / 1000, timezone.utc).replace(tzinfo=None)
             return round((local - start_local).total_seconds() / 60, 1) if start_local else None
         out["off"] = off
-        out["hr"] = [[minute(t), v] for t, v in (hr.get("heartRateValues") or []) if v]
+        out["hr"] = [[m, v] for m, v in ((minute(t), v) for t, v in (hr.get("heartRateValues") or []) if v) if m is not None]
         out["rhr"] = hr.get("restingHeartRate")
         out["rhr7"] = hr.get("lastSevenDaysAvgRestingHeartRate")
         time.sleep(PAUSE)
         bar("Today", 1, steps)
         bb = get(f"/wellness-service/wellness/bodyBattery/reports/daily?startDate={day}&endDate={day}") or []
         if bb:
-            out["bb"] = [[minute(t), v] for t, v in (bb[0].get("bodyBatteryValuesArray") or []) if v is not None]
+            out["bb"] = [[m, v] for m, v in ((minute(t), v) for t, v in (bb[0].get("bodyBatteryValuesArray") or []) if v is not None) if m is not None]
             out["bbCharged"], out["bbDrained"] = bb[0].get("charged"), bb[0].get("drained")
         time.sleep(PAUSE)
     except HTTPStatus:

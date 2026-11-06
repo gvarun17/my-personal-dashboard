@@ -1,0 +1,13 @@
+[run]
+branch = True
+source =
+    garmin_api
+    pull
+    build
+    server
+    test_connection
+
+[report]
+show_missing = True
+skip_covered = False
+fail_under = 100

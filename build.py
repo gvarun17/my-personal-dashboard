@@ -58,7 +58,8 @@ def build():
     sleep_raw = load("sleep.json", {})
     hrv_raw = load("hrv.json", {})
     weight_raw = load("weight.json", {})
-    fit = load("fitness_age.json", None) or {}
+    fit = load("fitness_age.json", None)
+    fit = fit if isinstance(fit, dict) else {}
     zones = load("hr_zones.json", None) or []
     state = load("state.json", {})
 
@@ -544,14 +545,14 @@ const nearest = (arr, v) => { let b = arr[0]; for (const a of arr) if (Math.abs(
 
 // ---------- line chart ----------
 function lineChart(el, o){
-  const W = Math.max(el.clientWidth, 240), H = o.h || 190, m = {l:38, r:12, t:12, b:24};
+  const W = Math.max(el.clientWidth, 240), H = o.h, m = {l:38, r:12, t:12, b:24};
   const inR = p => p[0] >= o.x0 && p[0] <= o.x1;
   const all = o.series.flatMap(s => s.pts.filter(inR));
   if (!all.length){ el.innerHTML = `<div class="empty">${o.empty || 'No data in this range yet.'}</div>`; return; }
   let lo = Math.min(...all.map(p=>p[1])), hi = Math.max(...all.map(p=>p[1]));
   const sp = (hi-lo) || Math.abs(hi)*0.1 || 1; lo -= sp*0.1; hi += sp*0.1;
   const tk = nice(lo, hi, 4); lo = tk[0]; hi = tk[tk.length-1];
-  const X = t => m.l + (t-o.x0)/((o.x1-o.x0)||1)*(W-m.l-m.r);
+  const X = t => m.l + (t-o.x0)/(o.x1-o.x0)*(W-m.l-m.r);
   const Y = v => m.t + (1-(v-lo)/(hi-lo))*(H-m.t-m.b);
   let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
   tk.forEach(v => { s += `<line class="grid" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="tick" x="${m.l-6}" y="${Y(v)+4}" text-anchor="end">${o.fmt ? o.fmt(v) : v}</text>`; });
@@ -580,7 +581,7 @@ function lineChart(el, o){
 
 // ---------- column chart (optionally stacked) ----------
 function colChart(el, o){
-  const W = Math.max(el.clientWidth, 240), H = o.h || 200, m = {l:38, r:o.ref?44:12, t:14, b:24};
+  const W = Math.max(el.clientWidth, 240), H = o.h, m = {l:38, r:o.ref?44:12, t:14, b:24};
   const tot = [...Array(o.n)].map((_,i) => sum(o.stacks.map(s=>s.v[i])));
   const top0 = Math.max(...tot, o.ref ? o.ref.v : 0);
   if (!top0){ el.innerHTML = `<div class="empty">${o.empty || 'No data in this range yet.'}</div>`; return; }
@@ -606,7 +607,7 @@ function colChart(el, o){
     const yr = Y(o.ref.v);
     s += `<line x1="${m.l}" x2="${W-m.r}" y1="${yr}" y2="${yr}" stroke="#c3c2b7" stroke-width="1"/><text class="reflab" x="${W-m.r+4}" y="${yr+4}">${o.ref.label}</text>`;
   }
-  (o.xt || []).forEach(([i,l]) => { s += `<text class="tick" x="${m.l+(i+0.5)*slot}" y="${H-6}" text-anchor="middle">${l}</text>`; });
+  o.xt.forEach(([i,l]) => { s += `<text class="tick" x="${m.l+(i+0.5)*slot}" y="${H-6}" text-anchor="middle">${l}</text>`; });
   s += `</svg>`;
   el.innerHTML = s;
   const svg = el.querySelector('svg'), hb = svg.querySelector('.hb');
@@ -867,7 +868,7 @@ function renderZones(){
   const tot = sum(z), el = document.getElementById('zbar');
   const ZC = ['#1c5cab','#2a78d6','#5598e7','#86b6ef','#b7d3f6'], ZI = ['#ffffff','#ffffff','#0b0b0b','#0b0b0b','#0b0b0b'];
   const ZN = ['Zone 1 · warm-up','Zone 2 · easy','Zone 3 · aerobic','Zone 4 · threshold','Zone 5 · max'];
-  const fl = D.zones || [];
+  const fl = D.zones;
   if (!tot){ el.innerHTML = '<div class="empty" style="width:100%">No heart rate data from activities in the last 4 weeks.</div>'; return; }
   el.innerHTML = z.map((v,i) => v ? `<div style="flex:${v};background:${ZC[i]};color:${ZI[i]}" data-i="${i}">${v/tot>=0.08?Math.round(v/tot*100)+'%':''}</div>` : '').join('');
   el.setAttribute('aria-label', z.map((v,i)=>`${ZN[i]} ${Math.round(v/tot*100)}%`).join(', '));
@@ -909,10 +910,10 @@ const tm = (lab, val, unit, sub, extra='') => `<div class="tm"><div class="lab">
 const meter = (v, goal) => goal ? `<div class="mbar"><i style="width:${Math.min(100, v/goal*100)}%;${v>=goal?'background:#0ca30c':''}"></i></div>` : '';
 
 function renderToday(){
-  const T = D.td; if (!T) return;
+  const T = D.td;
   const el = document.getElementById('today'), t0 = P(T.date);
   const im = T.imMod + 2*T.imVig;
-  const st = T.stressMix || {}, stTot = (st.rest+st.low+st.medium+st.high) || 1;
+  const st = T.stressMix, stTot = (st.rest+st.low+st.medium+st.high) || 1;
   const SM = [['rest','Rest','#1c5cab'],['low','Low','#5598e7'],['medium','Medium','#c98500'],['high','High','#d95926']];
   const stressBar = `<div class="thin">${SM.map(([k,,c]) => st[k] ? `<i style="flex:${st[k]};background:${c}"></i>` : '').join('')}</div>`;
   const wk = sum(daysIn(W0, W0+7*DAY).map(d=>d.im));
@@ -965,9 +966,9 @@ function dayLine(el, pts, o){
   let lo = o.lo ?? Math.min(...vals), hi = o.hi ?? Math.max(...vals);
   if (o.lo == null){ const sp = (hi-lo)||10; lo -= sp*.1; hi += sp*.1; }
   const tk = nice(lo, hi, 4); lo = tk[0]; hi = tk[tk.length-1];
-  const x1 = o.x1 || 1440, X = v => m.l + v/x1*(W-m.l-m.r), Y = v => m.t + (1-(v-lo)/(hi-lo))*(H-m.t-m.b);
+  const x1 = o.x1, X = v => m.l + v/x1*(W-m.l-m.r), Y = v => m.t + (1-(v-lo)/(hi-lo))*(H-m.t-m.b);
   let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
-  (o.windows||[]).forEach(w => { s += `<rect x="${X(w.x0)}" y="${m.t}" width="${Math.max(2, X(w.x1)-X(w.x0))}" height="${H-m.t-m.b}" fill="#ffffff" opacity=".08" rx="3"/>`; });
+  o.windows.forEach(w => { s += `<rect x="${X(w.x0)}" y="${m.t}" width="${Math.max(2, X(w.x1)-X(w.x0))}" height="${H-m.t-m.b}" fill="#ffffff" opacity=".08" rx="3"/>`; });
   tk.forEach(v => { s += `<line class="grid" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="tick" x="${m.l-6}" y="${Y(v)+4}" text-anchor="end">${o.fmt(v)}</text>`; });
   const every = [60,120,180,240,360].find(e => (W-m.l-m.r)*e/x1 >= 50) || 720;
   for (let h = 0; h <= x1; h += every){ const px = X(h); if (px > W-m.r-10 && h) continue; s += `<text class="tick" x="${px}" y="${H-6}" text-anchor="middle">${hhmm(h)}</text>`; }
@@ -997,7 +998,7 @@ const smooth = (a, k) => a.map((_,i) => { let s = 0, n = 0; for (let j = Math.ma
 const pct = (a, p) => { const b = a.filter(v=>v!=null).sort((x,y)=>x-y); return b.length ? b[Math.min(b.length-1, Math.floor(p*(b.length-1)))] : null; };
 
 function renderActivity(el, a){
-  const S = a.series || {}, sp = SP[a.s];
+  const S = a.series, sp = SP[a.s];
   const end = (() => { const [h,m] = a.start.split(':').map(Number); return hhmm(h*60+m+a.min); })();
   const pace = a.spd ? 1000/a.spd/60 : null;
   const onFoot = ONFOOT.has(a.s);
@@ -1015,7 +1016,7 @@ function renderActivity(el, a){
   if (a.rr) stats.push(['Breathing', a.rr, 'brpm', 'average']);
   // Run / walk / stand split
   const SK = {RWD_RUN:['Running','#d95926'], RWD_WALK:['Walking','#3987e5'], RWD_STAND:['Standing','#5a5955']};
-  const spl = (a.splits||[]).filter(x => SK[x.k] && x.min > 0), splTot = sum(spl.map(x=>x.min));
+  const spl = a.splits.filter(x => SK[x.k] && x.min > 0), splTot = sum(spl.map(x=>x.min));
   const zTot = sum(a.z), ZC = ['#1c5cab','#2a78d6','#5598e7','#86b6ef','#b7d3f6'], ZI = ['#fff','#fff','#0b0b0b','#0b0b0b','#0b0b0b'];
   const segBar = (parts) => `<div class="zbar">${parts.map(p => p.v ? `<div style="flex:${p.v};background:${p.c};color:${p.ink||'#fff'}" data-tip="${esc(p.tip)}">${p.share>=0.12?Math.round(p.share*100)+'%':''}</div>` : '').join('')}</div>`;
   const bars = [];
@@ -1034,7 +1035,7 @@ function renderActivity(el, a){
 
 // Synced small multiples for one activity: hover one, all follow.
 function actCharts(root, a){
-  const S = a.series || {}, t = S.t;
+  const S = a.series, t = S.t;
   if (!t || !t.length){ root.innerHTML = '<div class="empty">Garmin has no detailed graphs for this activity yet. Run refresh again later.</div>'; return; }
   const spd = S.spd ? smooth(S.spd.map(v => v > (ONFOOT.has(a.s) ? 0.8 : 0.3) ? v : null), 6) : null;
   const onFoot = ONFOOT.has(a.s);
@@ -1058,7 +1059,7 @@ function actCharts(root, a){
     const Y = v => { const f = (Math.min(hi, Math.max(lo, v))-lo)/(hi-lo); return m.t + (mt.invert ? f : 1-f)*(H-m.t-m.b); };
     let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
     tk.forEach(v => { s += `<line class="grid" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="tick" x="${m.l-6}" y="${Y(v)+4}" text-anchor="end">${mt.ax(v)}</text>`; });
-    if (mt.zones) (D.zones||[]).slice(1,5).forEach((z,j) => { if (z && z > lo && z < hi) s += `<line x1="${m.l}" x2="${W-m.r}" y1="${Y(z)}" y2="${Y(z)}" stroke="#4a4945" stroke-width="1"/><text class="tick" x="${W-m.r+4}" y="${Y(z)+4}">Z${j+2}</text>`; });
+    if (mt.zones) D.zones.slice(1,5).forEach((z,j) => { if (z && z > lo && z < hi) s += `<line x1="${m.l}" x2="${W-m.r}" y1="${Y(z)}" y2="${Y(z)}" stroke="#4a4945" stroke-width="1"/><text class="tick" x="${W-m.r+4}" y="${Y(z)+4}">Z${j+2}</text>`; });
     const step = tMax <= 1200 ? 300 : tMax <= 3600 ? 600 : 1200;
     for (let x = 0; x <= tMax; x += step){ const px = X(x); if (px > W-m.r-14 && x) continue; s += `<text class="tick" x="${px}" y="${H-5}" text-anchor="${x?'middle':'start'}">${Math.round(x/60)}m</text>`; }
     let d = '', pen = false;

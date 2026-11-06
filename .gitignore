@@ -3,3 +3,7 @@ data/
 dashboard.html
 __pycache__/
 *.tmp
+.coverage
+.coverage.*
+htmlcov/
+.venv-test/

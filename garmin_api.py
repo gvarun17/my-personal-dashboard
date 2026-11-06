@@ -48,6 +48,7 @@ def _new_token():
         with urllib.request.urlopen(req, timeout=30) as r:
             token = r.read().decode().strip().strip('"')
     except urllib.error.HTTPError as e:
+        e.close()
         raise GarminError(
             f"Garmin refused the key (HTTP {e.code}). It may be missing, "
             "mistyped or expired: check GARMIN_PERSONAL_API_KEY in .env.local."
@@ -94,6 +95,7 @@ def get(path, retries=4):
                 body = r.read()
             return json.loads(body) if body.strip() else None
         except urllib.error.HTTPError as e:
+            e.close()
             if e.code == 401 and not renewed:
                 token, renewed = get_token(force=True), True
                 continue

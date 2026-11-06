@@ -225,6 +225,41 @@ Notes on Garmin's Personal API:
   a 500.
 - Intraday stress, hourly steps and lap splits aren't available through it.
 
+## Tests
+
+Every test runs offline against made-up Garmin data. Network access is blocked
+inside the tests, and your real key, settings and data are never read.
+
+```bash
+./run_tests.sh        # macOS / Linux
+run_tests.bat         # Windows
+```
+
+The first run installs [coverage.py](https://coverage.readthedocs.io/), a
+test-only tool (`requirements-dev.txt`). The app itself still uses only the
+Python standard library. Or run the steps yourself:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 -m coverage run -m unittest discover -s tests -t .
+python3 -m coverage report      # fails if Python coverage drops below 100%
+```
+
+What's covered:
+
+| Area | Tests | Coverage |
+|---|---|---|
+| Python: `garmin_api.py`, `pull.py`, `build.py`, `server.py`, `test_connection.py` | `tests/test_*.py` (unit and real HTTP requests) | **100%** of lines and branches (enforced) |
+| Dashboard JavaScript (charts, hovers, buttons, refresh) | `tests/test_dashboard_js.py` and `tests/js/dashboard.test.cjs` run it in Node.js with a simulated page, across 6 datasets (full, empty, rest day, long ride, sparse, phone/tablet/desktop) | **100%** of lines and functions, 93%+ of branches (enforced) |
+
+The JavaScript tests need Node.js 22+ and are skipped without it. Set
+`JS_COVERAGE=1` to print the JavaScript coverage table.
+
+GitHub Actions (`.github/workflows/tests.yml`) runs the whole suite on
+**Windows, macOS and Linux** with Python 3.10 and 3.13 on every push. It also
+builds the Docker image and checks that it starts, passes its health check and
+runs as a regular (not admin) user.
+
 ## Privacy
 
 - Read-only: the Personal API can't change anything in your Garmin account.

@@ -94,8 +94,9 @@ class Refresher:
                 r = subprocess.run(cmd, cwd=ROOT, env=CHILD_ENV, capture_output=True, text=True,
                                    encoding="utf-8", errors="replace", timeout=1800)
                 if r.returncode != 0:
-                    lines = (r.stdout + r.stderr).replace("\r", "\n").strip().splitlines()
-                    raise RuntimeError(lines[-1] if lines else f"{cmd[1]} failed")
+                    lines = [l.strip() for l in (r.stdout + r.stderr).replace("\r", "\n").splitlines() if l.strip()]
+                    reason = next((l for l in reversed(lines) if l.startswith("Stopped")), lines[-1] if lines else None)
+                    raise RuntimeError(reason or f"{cmd[1]} failed")
             self.last_ok = datetime.now().isoformat(timespec="seconds")
             self.last_error = None
             log("Refresh finished")
