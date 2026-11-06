@@ -440,11 +440,32 @@ class SetupRouteTests(HandlerTests):
         self.assertEqual(r.status, 403)
         r, _ = self.post(form, {"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)
+        r, _ = self.post(form, {"Sec-Fetch-Site": "same-site"})       # e.g. another port
+        self.assertEqual(r.status, 403)
+        r, _ = self.post(form, {"Origin": "null"})                    # sandboxed page, old browser
+        self.assertEqual(r.status, 403)
         r, _ = self.request("POST", "/refresh", headers={"Origin": "https://evil.example"})
         self.assertEqual(r.status, 403)
         with mock.patch.object(garmin_api, "check_key"):
             r, _ = self.post(form, {"Origin": f"http://{host}", "Sec-Fetch-Site": "same-origin"})
+            self.assertEqual(r.status, 303)
+            r, _ = self.post(form, {"Origin": f"http://{host}"})          # older browser, own page
+            self.assertEqual(r.status, 303)
+
+    def test_own_page_post_with_null_origin_is_allowed(self):
+        # What a browser really sends for the start page's own form when the
+        # page had "Referrer-Policy: no-referrer" (the cause of a 403 bug).
+        form = {"name": "x", "tz": "Asia/Kolkata", "key": "k"}
+        with mock.patch.object(garmin_api, "check_key"):
+            r, _ = self.post(form, {"Origin": "null", "Sec-Fetch-Site": "same-origin"})
         self.assertEqual(r.status, 303)
+        with mock.patch.object(server.refresher, "start", return_value=True):
+            r, _ = self.request("POST", "/refresh", headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"})
+        self.assertNotEqual(r.status, 403)
+
+    def test_referrer_policy_keeps_origin_for_own_posts(self):
+        r, _ = self.request("GET", "/setup")
+        self.assertEqual(r.getheader("Referrer-Policy"), "same-origin")
 
     def test_start_page_needs_the_password_too(self):
         with mock.patch.object(server, "PASSWORD", "pw"):

@@ -284,7 +284,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
+        # same-origin, not no-referrer: with no-referrer, browsers send
+        # "Origin: null" on the app's own form posts, which looks cross-site
+        self.send_header("Referrer-Policy", "same-origin")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -292,13 +294,18 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def _same_origin(self):
-        """Block form posts and refreshes sent from other websites."""
-        if (self.headers.get("Sec-Fetch-Site") or "") == "cross-site":
-            return False
+        """Block form posts and refreshes sent from other websites.
+
+        Modern browsers say where a request came from in Sec-Fetch-Site, which
+        is reliable even when they send "Origin: null". Older browsers: compare
+        Origin with Host. No header at all: not a browser (curl, scripts)."""
+        site = self.headers.get("Sec-Fetch-Site")
+        if site:
+            return site in ("same-origin", "none")
         origin = self.headers.get("Origin")
         if not origin:
             return True
-        return urlsplit(origin).netloc == (self.headers.get("Host") or "")
+        return origin != "null" and urlsplit(origin).netloc == (self.headers.get("Host") or "")
 
     def _redirect(self, where):
         self._send(303, "", "text/plain; charset=utf-8", {"Location": where})

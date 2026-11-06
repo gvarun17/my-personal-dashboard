@@ -178,6 +178,9 @@ jobs:
           curl -fsS http://localhost:8080/setup | grep -q 'Garmin'
           echo "- setup form refuses posts from other sites"
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Origin: https://evil.example' -d 'name=x' http://localhost:8080/setup)" = "403"
+          echo "- setup form accepts the page's own post, sent the way browsers send it"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Origin: null' -H 'Sec-Fetch-Site: same-origin' -d 'name=' http://localhost:8080/setup)" = "400"
+          curl -sI http://localhost:8080/setup | grep -qi '^referrer-policy: same-origin'
           echo "- runs as the non-root app user, with no .env.local inside"
           docker exec dash sh -c 'test "$(id -u)" = 10001 && test ! -e /app/.env.local'
           echo "- Docker reports it healthy"
